@@ -56,6 +56,7 @@ DEFAULT_TIMEOUTS = {
     'maven_head': 10,
     'maven_get': 20,
     'cocoapods': 15,
+    'crates': 15,
 }
 
 
@@ -72,16 +73,26 @@ def parse_purl(purl: str) -> Optional[Dict[str, str]]:
         version = version_part.split('?')[0].split('#')[0]
         parts = main_part.split('/')
         pkg_type = parts[0]
-        name_parts = parts[1:]
-        res = {'type': pkg_type, 'version': version}
+
+        # maven PURLs are typically 'pkg:maven/group/artifact@version'
         if pkg_type == 'maven':
-            if len(name_parts) < 2:
-                raise ValueError('Maven PURL fehlt group oder artifact')
-            res['group'] = name_parts[0]
-            res['artifact'] = name_parts[1]
-        else:
-            res['name'] = '/'.join(name_parts)
-        return res
+            # ensure we have group and artifact
+            group = ''
+            artifact = ''
+            if len(parts) >= 3:
+                group = parts[1]
+                artifact = parts[2]
+            elif len(parts) == 2:
+                comp = parts[1]
+                if ':' in comp:
+                    group, artifact = comp.split(':', 1)
+                else:
+                    artifact = comp
+            return {'type': pkg_type, 'version': version, 'group': group, 'artifact': artifact}
+
+        # other pkg types: join remaining parts as name (handles scoped npm etc.)
+        name = '/'.join(parts[1:]) if len(parts) > 1 else ''
+        return {'type': pkg_type, 'version': version, 'name': name}
     except Exception as e:
         log_error(f"PURL-Parsing fehlgeschlagen für {purl}: {e}")
         return None
@@ -329,83 +340,9 @@ def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
 
     return None
 
-    # if group looks like androidx and we didn't find anything above, try devsite
-    # (this code path normally won't be reached because we return earlier,
-    #  but keep a last-resort check by placing caller responsibility)
+    
 
-
-def get_latest_androidx_from_devsite(artifact: str) -> Optional[str]:
-    """Fallback: parse developer.android.com jetpack/androidx/releases/<artifact>
-    to extract released versions (useful for AndroidX artifacts hosted by Google).
-    This is used only as a last-resort fallback and can be enabled implicitly
-    for groups starting with 'androidx'.
-    """
-    if not artifact:
-        return None
-    urls = [
-        f'https://developer.android.com/jetpack/androidx/releases/{artifact}',
-        f'https://developer.android.com/jetpack/androidx/releases/{artifact}?hl=en',
-    ]
-    found = set()
-    import re
-    for url in urls:
-        try:
-            r = SESSION.get(url, timeout=15)
-            if r.status_code != 200 or not r.text:
-                continue
-            text = r.text
-            # common anchors like #1.1.0 or id="1.1.0" or <h3>1.1.0</h3>
-            for m in re.findall(r'#["\']?([0-9]+\.[0-9]+(?:\.[0-9A-Za-z._-]+)?)', text):
-                found.add(m)
-            for m in re.findall(r'id=["\']?([0-9]+\.[0-9]+(?:\.[0-9A-Za-z._-]+)?)', text):
-                found.add(m)
-            for m in re.findall(r'>([0-9]+\.[0-9]+(?:\.[0-9A-Za-z._-]+)?)<', text):
-                # filter short matches that look like version headings
-                if re.match(r'^[0-9]+\.[0-9]+(\.[0-9A-Za-z._-]+)?$', m):
-                    found.add(m)
-        except Exception:
-            continue
-
-    if not found:
-        return None
-    # Prefer semver parse if available
-    candidates = list(found)
-    # Prefer stable releases: filter out alpha/beta/rc candidates when possible
-    stable = [v for v in candidates if not re.search(r'(?i)(alpha|beta|rc|preview|m\d|dev|snapshot)', v)]
-    use_list = stable if stable else candidates
-    try:
-        if semver:
-            parsed = []
-            for v in use_list:
-                try:
-                    vi = semver.VersionInfo.parse(v)
-                    parsed.append((vi, v))
-                except Exception:
-                    core = re.match(r'^([0-9]+\.[0-9]+(?:\.[0-9]+)?)', v)
-                    if core:
-                        try:
-                            vi = semver.VersionInfo.parse(core.group(1))
-                            parsed.append((vi, v))
-                        except Exception:
-                            pass
-            if parsed:
-                parsed.sort()
-                return parsed[-1][1]
-    except Exception:
-        pass
-
-    # numeric-like fallback sorting
-    def norm(v: str):
-        parts = []
-        for p in v.split('.'):
-            try:
-                parts.append(int(''.join(ch for ch in p if ch.isdigit()) or 0))
-            except Exception:
-                parts.append(0)
-        return parts
-
-    candidates = sorted(set(candidates), key=norm)
-    return candidates[-1]
+    
 
 
 def get_latest_npm_version(name: str) -> Optional[str]:
@@ -489,6 +426,82 @@ def get_cocoapods_release_date(name: str, version: str) -> Optional[datetime]:
         return None
 
 
+def get_latest_crates_version(name: str) -> Optional[str]:
+    """Query crates.io for crate metadata and return latest version."""
+    if not name:
+        return None
+    url = f'https://crates.io/api/v1/crates/{name}'
+    try:
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['crates'])
+        r.raise_for_status()
+        data = r.json()
+        raw_versions = data.get('versions', [])
+        if not raw_versions:
+            return None
+
+        # prefer non-yanked releases
+        candidates = [v.get('num') for v in raw_versions if v.get('num') and not v.get('yanked')]
+        if not candidates:
+            # fall back to any version (including yanked)
+            candidates = [v.get('num') for v in raw_versions if v.get('num')]
+        candidates = list(set([c for c in candidates if c]))
+        if not candidates:
+            return None
+
+        # sorting key: prefer semver if available, else packaging, else numeric-dot fallback
+        def version_key(s: str):
+            if semver:
+                try:
+                    return (0, semver.VersionInfo.parse(s))
+                except Exception:
+                    pass
+            if PackagingVersion:
+                try:
+                    return (1, PackagingVersion(s))
+                except Exception:
+                    pass
+            # numeric-dot fallback: convert segments to ints where possible
+            parts = []
+            for p in s.split('.'):
+                num = ''.join(ch for ch in p if ch.isdigit())
+                try:
+                    parts.append(int(num) if num != '' else 0)
+                except Exception:
+                    parts.append(0)
+            return (2, tuple(parts))
+
+        try:
+            candidates.sort(key=version_key)
+            return candidates[-1]
+        except Exception:
+            return sorted(candidates)[-1]
+    except Exception:
+        return None
+
+
+def get_crates_release_date(name: str, version: str) -> Optional[datetime]:
+    """Get the created_at date for a specific crates.io version."""
+    if not name or not version:
+        return None
+    url = f'https://crates.io/api/v1/crates/{name}/versions'
+    try:
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['crates'])
+        r.raise_for_status()
+        data = r.json()
+        for v in data.get('versions', []):
+            if v.get('num') == version:
+                created = v.get('created_at')
+                if created:
+                    try:
+                        dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                        return dt
+                    except Exception:
+                        return None
+        return None
+    except Exception:
+        return None
+
+
 def _load_persistent_cache(cache_file: str) -> Dict[str, Any]:
     if not cache_file:
         return {}
@@ -566,6 +579,9 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
     now = datetime.now(timezone.utc)
     found_vuln = False
     persistent_cache = _load_persistent_cache(cache_file) if check_updates else {}
+    # in-memory caches for this run to avoid duplicate HTTP calls
+    transient_latest_cache = {}
+    transient_release_cache = {}
 
     for comp in components:
         purl = comp.get('purl')
@@ -585,6 +601,9 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
             # CocoaPods (Trunk API)
             # purl name is the pod name (e.g., AFNetworking)
             release_date = get_cocoapods_release_date(parsed.get('name'), version)
+        elif pkg_type == 'cargo':
+            # crates.io
+            release_date = get_crates_release_date(parsed.get('name'), version)
         elif pkg_type == 'maven':
             if not version or version.lower() == 'unspecified':
                 log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed.get('group')} a={parsed.get('artifact')} v={version}")
@@ -601,25 +620,41 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
                 if check_updates:
                     latest = None
                     try:
+                        # compute a simple cache name for lookups: use pkg_type and name (and artifact/group where appropriate)
                         if pkg_type == 'pypi':
-                            latest = get_latest_pypi_version(parsed.get('name'))
+                            lookup_name = parsed.get('name')
+                            cache_key = f"latest:{pkg_type}:{lookup_name}"
+                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                            if not latest:
+                                latest = get_latest_pypi_version(parsed.get('name'))
                         elif pkg_type == 'npm':
-                            latest = get_latest_npm_version(parsed.get('name'))
+                            lookup_name = parsed.get('name')
+                            cache_key = f"latest:{pkg_type}:{lookup_name}"
+                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                            if not latest:
+                                latest = get_latest_npm_version(parsed.get('name'))
                         elif pkg_type == 'maven':
-                            latest = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
-                            if (not latest) and parsed.get('group', '').startswith('androidx'):
-                                devsite_ver = get_latest_androidx_from_devsite(parsed.get('artifact'))
-                                if devsite_ver:
-                                    latest = devsite_ver
+                            lookup_name = f"{parsed.get('group') or ''}:{parsed.get('artifact') or ''}"
+                            cache_key = f"latest:{pkg_type}:{lookup_name}"
+                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                            if not latest:
+                                latest = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
                         elif pkg_type == 'cocoapods':
-                            latest = get_latest_cocoapods_version(parsed.get('name'))
-                            if (not latest) and parsed.get('group', '').startswith('androidx'):
-                                # try developer.android.com Jetpack / AndroidX release page as a fallback
-                                devsite_ver = get_latest_androidx_from_devsite(parsed.get('artifact'))
-                                if devsite_ver:
-                                    latest = devsite_ver
+                            lookup_name = parsed.get('name')
+                            cache_key = f"latest:{pkg_type}:{lookup_name}"
+                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                            if not latest:
+                                latest = get_latest_cocoapods_version(parsed.get('name'))
+                        elif pkg_type == 'cargo':
+                            lookup_name = parsed.get('name')
+                            cache_key = f"latest:{pkg_type}:{lookup_name}"
+                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                            if not latest:
+                                latest = get_latest_crates_version(parsed.get('name'))
+
                         if latest and latest != version:
-                            cache_key = f"latest:{pkg_type}:{parsed.get('group') or parsed.get('name')}:{parsed.get('artifact') or ''}"
+                            # ensure we cache the computed latest for this run and persist it
+                            transient_latest_cache[cache_key] = latest
                             cached = persistent_cache.get(cache_key)
                             if cached and cached.get('latest') == latest:
                                 newer = cached.get('newer')
@@ -637,6 +672,12 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
     else:
         if check_updates and cache_file:
             _save_persistent_cache(cache_file, persistent_cache)
+    # always save persistent cache if requested (also when found_vuln True)
+    if check_updates and cache_file:
+        try:
+            _save_persistent_cache(cache_file, persistent_cache)
+        except Exception:
+            pass
 
 
 def main():
