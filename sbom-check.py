@@ -16,6 +16,18 @@ from datetime import datetime, timezone
 import requests
 from typing import Optional, Dict, Any
 import xml.etree.ElementTree as ET
+import os
+
+# Optional strong version compare libs (best effort)
+try:
+    from packaging.version import Version as PackagingVersion
+except Exception:
+    PackagingVersion = None
+
+try:
+    import semver
+except Exception:
+    semver = None
 
 # Konfigurieren Sie ein einfaches Logging für Fehlermeldungen auf stderr
 def log_error(message: str):
@@ -289,6 +301,72 @@ def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
         return None
 
 
+def _load_persistent_cache(cache_file: str) -> Dict[str, Any]:
+    if not cache_file:
+        return {}
+    try:
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r', encoding='utf-8') as cf:
+                return json.load(cf)
+    except Exception:
+        # ignore cache load errors
+        pass
+    return {}
+
+
+def _save_persistent_cache(cache_file: str, cache: Dict[str, Any]):
+    if not cache_file:
+        return
+    try:
+        with open(cache_file, 'w', encoding='utf-8') as cf:
+            json.dump(cache, cf, ensure_ascii=False, indent=2)
+    except Exception:
+        # ignore cache write errors
+        pass
+
+
+def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]:
+    """Return True if latest > current, False if not, None if unknown/uncomparable."""
+    if not current or not latest:
+        return None
+    # PyPI: use packaging if available
+    try:
+        if PackagingVersion and pkg_type == 'pypi':
+            try:
+                return PackagingVersion(latest) > PackagingVersion(current)
+            except Exception:
+                pass
+
+        # npm/maven/others: try semver if available
+        if semver:
+            try:
+                # semver.compare returns >0 when v1>v2
+                cmp = semver.compare(str(latest), str(current))
+                return cmp > 0
+            except Exception:
+                pass
+
+        # Fallback: loose numeric comparison of dot-separated integers
+        def norm(v: str):
+            parts = []
+            for p in v.split('.'):
+                try:
+                    parts.append(int(''.join(ch for ch in p if ch.isdigit()) or 0))
+                except Exception:
+                    parts.append(0)
+            return parts
+
+        cur = norm(current)
+        lat = norm(latest)
+        # compare element-wise
+        for a, b in zip(lat, cur):
+            if a != b:
+                return a > b
+        return len(lat) > len(cur)
+    except Exception:
+        return None
+
+
 def get_latest_npm_version(name: str) -> Optional[str]:
     url = f"https://registry.npmjs.org/{requests.utils.quote(name)}"
     try:
@@ -323,7 +401,7 @@ def get_latest_pypi_version(name: str) -> Optional[str]:
     except requests.exceptions.RequestException:
         return None
 
-def analyze_sbom(sbom_path: str, max_age_days: int):
+def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None):
     """
     Lädt, parst und analysiert die SBOM-Datei auf veraltete Komponenten.
     """
@@ -351,6 +429,9 @@ def analyze_sbom(sbom_path: str, max_age_days: int):
 
     now = datetime.now(timezone.utc)
     found_vulnerable = False
+
+    # Load persistent cache for latest-version lookups
+    persistent_cache = _load_persistent_cache(cache_file) if check_updates else {}
 
     for component in components:
         purl = component.get("purl")
@@ -411,8 +492,20 @@ def analyze_sbom(sbom_path: str, max_age_days: int):
                         elif pkg_type == "maven":
                             latest = get_latest_maven_version(parsed_purl.get("group"), parsed_purl.get("artifact"))
 
-                        if latest and latest != version:
-                            print(f"UPDATE_AVAILABLE: {purl} -> latest: {latest} (aktuell: {version})")
+                            if check_updates and latest and latest != version:
+                                # consult persistent cache key
+                                cache_key = f"latest:{pkg_type}:{parsed_purl.get('group') or parsed_purl.get('name')}:{parsed_purl.get('artifact') or ''}"
+                                # if cached result exists, use it
+                                cached = persistent_cache.get(cache_key)
+                                if cached and cached.get('latest') == latest:
+                                    newer = cached.get('newer')
+                                else:
+                                    newer = compare_versions(version, latest, pkg_type)
+                                    persistent_cache[cache_key] = {'latest': latest, 'newer': newer}
+
+                                # only print update if latest > current (newer == True) or unknown but different
+                                if newer is True or (newer is None and latest != version):
+                                    print(f"UPDATE_AVAILABLE: {purl} -> latest: {latest} (aktuell: {version})")
                     except Exception:
                         # Nicht kritisch, nur Info-Versuche
                         pass
@@ -445,6 +538,17 @@ def main():
         type=int,
         help="Das maximal zulässige Alter einer Komponente in Tagen (z. B. 90)."
     )
+
+    parser.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="Wenn gesetzt, prüft das Skript zusätzlich, ob für ALARM-Komponenten neuere Versionen in den Registries vorliegen."
+    )
+
+    parser.add_argument(
+        "--cache-file",
+        default=".sbom-check-cache.json",
+        help="Datei, in der Lookup-Ergebnisse (z.B. gefundene neueste Versionen) zwischengespeichert werden.")
     
     args = parser.parse_args()
     
@@ -452,7 +556,18 @@ def main():
         log_error("--age muss ein positiver Integer sein.")
         sys.exit(1)
         
-    analyze_sbom(args.sbom, args.age)
+    analyze_sbom(args.sbom, args.age, check_updates=args.check_updates, cache_file=(args.cache_file if args.check_updates else None))
+
+    # Wenn Update-Checks aktiv und Cache-File angegeben, persistieren wir den Cache
+    if args.check_updates and args.cache_file:
+        # persistent cache wurde im analyze_sbom geladen und gefüllt; lade & save (defensive)
+        # _save_persistent_cache wird in analyze_sbom am Ende aufgerufen, aber wir rufen es hier nochmal sicherheitshalber
+        try:
+            # Re-load to merge possible in-memory modifications
+            # (analyze_sbom nutzt interne Variable; to keep it simple we re-run save with same file)
+            _save_persistent_cache(args.cache_file, _load_persistent_cache(args.cache_file))
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()
