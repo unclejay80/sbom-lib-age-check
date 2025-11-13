@@ -145,23 +145,94 @@ def get_maven_release_date(group: str, artifact: str, version: str) -> Optional[
     """
     Ruft das Veröffentlichungsdatum (Timestamp) eines Maven-Artefakts ab.
     """
-    # Nutzt die Maven Central Search API
-    query = f'g:"{group}"+AND+a:"{artifact}"+AND+v:"{version}"'
-    url = f"https://search.maven.org/solrsearch/select?q={query}&rows=1&wt=json"
+    # Einfacher In-Memory-Cache, damit bei mehrfachen Vorkommen nicht erneut
+    # dieselben HTTP-Anfragen ausgeführt werden.
+    if not hasattr(get_maven_release_date, "_cache"):
+        get_maven_release_date._cache = {}
+
+    cache_key = (group, artifact, version)
+    if cache_key in get_maven_release_date._cache:
+        return get_maven_release_date._cache[cache_key]
+
+    # Nutzt die Maven Central Search API mit URL-Parametern (robusteres Encoding)
+    search_url = "https://search.maven.org/solrsearch/select"
+    query = f'g:"{group}" AND a:"{artifact}" AND v:"{version}"'
+    params = {"q": query, "rows": 1, "wt": "json"}
     
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(search_url, params=params, timeout=5)
         response.raise_for_status()
-        
+
         data = response.json()
-        
+
         if data.get("response", {}).get("numFound", 0) > 0:
             doc = data["response"]["docs"][0]
-            timestamp_ms = doc["timestamp"]
-            # Konvertiere Millisekunden-Timestamp in ein datetime-Objekt (UTC)
-            return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-            
-        log_error(f"Maven-Artefakt nicht gefunden: g={group} a={artifact} v={version}")
+            timestamp_ms = doc.get("timestamp")
+            if timestamp_ms:
+                dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+                get_maven_release_date._cache[cache_key] = dt
+                return dt
+
+        # Fallback: Versuche, das Artefakt-URL auf repo1.maven.org zu prüfen
+        # Baue Pfad: /{groupId path}/{artifact}/{version}/{artifact}-{version}.pom
+        group_path = group.replace('.', '/')
+        pom_url = f"https://repo1.maven.org/maven2/{group_path}/{artifact}/{version}/{artifact}-{version}.pom"
+
+        # Zunächst HEAD anfragen, um Last-Modified zu erhalten
+        head_resp = requests.head(pom_url, timeout=4)
+        if head_resp.status_code == 200:
+            last_mod = head_resp.headers.get("Last-Modified")
+            if last_mod:
+                try:
+                    # Parse RFC 2822/1123 dates
+                    from email.utils import parsedate_to_datetime
+                    dt = parsedate_to_datetime(last_mod)
+                    # Ensure timezone-aware
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    get_maven_release_date._cache[cache_key] = dt
+                    return dt
+                except Exception:
+                    # Ignoriere Parsefehler und fahre mit GET fort
+                    pass
+
+        # Wenn HEAD nichts liefert, versuche GET und prüfe Last-Modified
+        get_resp = requests.get(pom_url, timeout=6)
+        if get_resp.status_code == 200:
+            last_mod = get_resp.headers.get("Last-Modified")
+            if last_mod:
+                from email.utils import parsedate_to_datetime
+                try:
+                    dt = parsedate_to_datetime(last_mod)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    get_maven_release_date._cache[cache_key] = dt
+                    return dt
+                except Exception:
+                    pass
+
+        # Fallback 2: Google's Maven repository (enthält viele AndroidX/Google-Artefakte)
+        google_pom_url = f"https://dl.google.com/dl/android/maven2/{group.replace('.', '/')}/{artifact}/{version}/{artifact}-{version}.pom"
+        try:
+            head_resp = requests.head(google_pom_url, timeout=4)
+            if head_resp.status_code == 200:
+                last_mod = head_resp.headers.get("Last-Modified")
+                if last_mod:
+                    from email.utils import parsedate_to_datetime
+                    try:
+                        dt = parsedate_to_datetime(last_mod)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        get_maven_release_date._cache[cache_key] = dt
+                        return dt
+                    except Exception:
+                        pass
+        except requests.exceptions.RequestException:
+            # Ignoriere Google-Repo-Ausfälle und fahre fort
+            pass
+
+        log_error(f"Maven-Artefakt nicht gefunden oder kein Datum verfügbar: g={group} a={artifact} v={version}")
+        get_maven_release_date._cache[cache_key] = None
         return None
 
     except (requests.exceptions.RequestException, json.JSONDecodeError, IndexError) as e:
@@ -218,7 +289,12 @@ def analyze_sbom(sbom_path: str, max_age_days: int):
             elif pkg_type == "npm":
                 release_date = get_npm_release_date(parsed_purl["name"], version)
             elif pkg_type == "maven":
-                release_date = get_maven_release_date(parsed_purl["group"], parsed_purl["artifact"], version)
+                # Handle unspecified or placeholder versions
+                if not version or version.lower() == "unspecified":
+                    log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed_purl.get('group')} a={parsed_purl.get('artifact')} v={version}")
+                    release_date = None
+                else:
+                    release_date = get_maven_release_date(parsed_purl["group"], parsed_purl["artifact"], version)
             elif pkg_type in ["cargo", "composer", "golang", "spm"]:
                 # Platzhalter für zukünftige Implementierungen
                 # log_error(f"Überspringe nicht unterstützten PURL-Typ: {pkg_type}")
