@@ -2,23 +2,29 @@
 # -*- coding: utf-8 -*-
 
 """
-Ein Python-Skript zur Analyse von CycloneDX 1.5 SBOMs (JSON)
-um das Alter von Software-Komponenten zu überprüfen.
+sbom-check.py
 
-Nutzung:
-    python sbom_age_analyzer.py --sbom /pfad/zu/sbom.json --age 90
+Analyzes a CycloneDX 1.5 SBOM (JSON) for component ages and optionally checks for newer versions.
+
+Features:
+- resilient HTTP session with retries and sensible timeouts
+- Maven latest-version discovery (maven-metadata.xml, search.maven.org, Google Maven index)
+- inline UPDATE_AVAILABLE appended to ALARM lines when --check-updates is used
+- persistent JSON cache for latest-version lookups
 """
 
-import json
 import argparse
+import json
+import os
 import sys
 from datetime import datetime, timezone
-import requests
 from typing import Optional, Dict, Any
-import xml.etree.ElementTree as ET
-import os
 
-# Optional strong version compare libs (best effort)
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import xml.etree.ElementTree as ET
+
 try:
     from packaging.version import Version as PackagingVersion
 except Exception:
@@ -29,275 +35,457 @@ try:
 except Exception:
     semver = None
 
-# Konfigurieren Sie ein einfaches Logging für Fehlermeldungen auf stderr
+
+def _create_session(retries: int = 4, backoff_factor: float = 1.0,
+                    status_forcelist=(429, 500, 502, 503, 504)) -> requests.Session:
+    s = requests.Session()
+    retry = Retry(total=retries, backoff_factor=backoff_factor, status_forcelist=status_forcelist,
+                  allowed_methods=("HEAD", "GET", "OPTIONS"))
+    adapter = HTTPAdapter(max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
+SESSION = _create_session()
+
+DEFAULT_TIMEOUTS = {
+    'pypi': 15,
+    'npm': 15,
+    'maven_search': 15,
+    'maven_head': 10,
+    'maven_get': 20,
+    'cocoapods': 15,
+}
+
+
 def log_error(message: str):
-    """Schreibt eine Fehlermeldung auf stderr."""
     print(f"FEHLER: {message}", file=sys.stderr)
 
+
 def parse_purl(purl: str) -> Optional[Dict[str, str]]:
-    """
-    Parst eine Package URL (PURL), um Typ, Namen, Version und optional die Gruppe zu extrahieren.
-    
-    HINWEIS: Dies ist ein vereinfachter Parser. Für eine robuste Produktion
-    wird die Bibliothek 'packageurl-python' empfohlen.
-    """
-    if not purl or not purl.startswith("pkg:"):
+    if not purl or not purl.startswith('pkg:'):
         log_error(f"Ungültiges oder leeres PURL-Format: {purl}")
         return None
-
     try:
-        # Entferne 'pkg:' und teile bei '@' für Version
         main_part, version_part = purl[4:].split('@', 1)
-        
-        # Isoliere die Version von Qualifizierern
         version = version_part.split('?')[0].split('#')[0]
-        
-        # Teile den Hauptteil, um Typ und Namensraum/Name zu erhalten
         parts = main_part.split('/')
         pkg_type = parts[0]
-        
         name_parts = parts[1:]
-        
-        result = {
-            "type": pkg_type,
-            "version": version
-        }
-
-        if pkg_type == "maven":
+        res = {'type': pkg_type, 'version': version}
+        if pkg_type == 'maven':
             if len(name_parts) < 2:
-                raise ValueError("Maven PURL fehlt group oder artifact")
-            result["group"] = name_parts[0]
-            result["artifact"] = name_parts[1]
-        elif pkg_type in ["npm", "pypi", "cargo", "composer"]:
-            # Behandelt Fälle wie 'npm/react' oder 'npm/@angular/core'
-            result["name"] = "/".join(name_parts)
+                raise ValueError('Maven PURL fehlt group oder artifact')
+            res['group'] = name_parts[0]
+            res['artifact'] = name_parts[1]
         else:
-            # Fallback für andere Typen
-            result["name"] = "/".join(name_parts)
-            
-        return result
-        
-    except ValueError as e:
+            res['name'] = '/'.join(name_parts)
+        return res
+    except Exception as e:
         log_error(f"PURL-Parsing fehlgeschlagen für {purl}: {e}")
         return None
-    except Exception as e:
-        log_error(f"Unerwarteter PURL-Parsing-Fehler für {purl}: {e}")
-        return None
+
 
 def get_pypi_release_date(name: str, version: str) -> Optional[datetime]:
-    """
-    Ruft das Veröffentlichungsdatum einer bestimmten Paketversion von PyPI ab.
-    """
     url = f"https://pypi.org/pypi/{name}/{version}/json"
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()  # Löst eine Ausnahme für 4xx/5xx-Status aus
-        
-        data = response.json()
-        
-        # Finde das früheste Upload-Datum (normalerweise das erste)
-        if "urls" in data and data["urls"]:
-            # Daten können None sein, also filtern wir
-            upload_times = [
-                entry["upload_time_iso_8601"] 
-                for entry in data["urls"] 
-                if entry.get("upload_time_iso_8601")
-            ]
-            if not upload_times:
-                log_error(f"Keine Upload-Zeiten gefunden für pypi:{name}@{version}")
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['pypi'])
+        r.raise_for_status()
+        data = r.json()
+        if 'urls' in data and data['urls']:
+            times = [u.get('upload_time_iso_8601') for u in data['urls'] if u.get('upload_time_iso_8601')]
+            if not times:
                 return None
-                
-            first_upload_str = min(upload_times)
-            # Konvertiere ISO-String (z.B. "2024-01-01T12:00:00.000000Z")
-            return datetime.fromisoformat(first_upload_str.replace("Z", "+00:00"))
-        
-        log_error(f"Keine 'urls'-Sektion gefunden für pypi:{name}@{version}")
+            return datetime.fromisoformat(min(times).replace('Z', '+00:00'))
+        return None
+    except Exception:
         return None
 
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            log_error(f"PyPI-Paket nicht gefunden (404): {url}")
-        else:
-            log_error(f"HTTP-Fehler beim Abrufen von PyPI-Daten für {name}@{version}: {e}")
-        return None
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        log_error(f"Fehler beim Abrufen von PyPI-Daten für {name}@{version}: {e}")
-        return None
 
 def get_npm_release_date(name: str, version: str) -> Optional[datetime]:
-    """
-    Ruft das Veröffentlichungsdatum einer bestimmten Paketversion von npm registry ab.
-    """
-    # URL-kodiert den Namen, falls er einen Schrägstrich enthält (z.B. @angular/core)
     url = f"https://registry.npmjs.org/{requests.utils.quote(name)}"
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        if "time" in data and version in data["time"]:
-            date_str = data["time"][version]
-            # Konvertiere ISO-String
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        
-        log_error(f"Version {version} nicht im 'time'-Objekt für npm:{name} gefunden")
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['npm'])
+        r.raise_for_status()
+        data = r.json()
+        if 'time' in data and version in data['time']:
+            return datetime.fromisoformat(data['time'][version].replace('Z', '+00:00'))
+        return None
+    except Exception:
         return None
 
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            log_error(f"NPM-Paket nicht gefunden (404): {url}")
-        else:
-            log_error(f"HTTP-Fehler beim Abrufen von NPM-Daten für {name}@{version}: {e}")
-        return None
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        log_error(f"Fehler beim Abrufen von NPM-Daten für {name}@{version}: {e}")
-        return None
 
 def get_maven_release_date(group: str, artifact: str, version: str) -> Optional[datetime]:
-    """
-    Ruft das Veröffentlichungsdatum (Timestamp) eines Maven-Artefakts ab.
-    """
-    # Einfacher In-Memory-Cache, damit bei mehrfachen Vorkommen nicht erneut
-    # dieselben HTTP-Anfragen ausgeführt werden.
-    if not hasattr(get_maven_release_date, "_cache"):
+    if not hasattr(get_maven_release_date, '_cache'):
         get_maven_release_date._cache = {}
+    key = (group, artifact, version)
+    if key in get_maven_release_date._cache:
+        return get_maven_release_date._cache[key]
 
-    cache_key = (group, artifact, version)
-    if cache_key in get_maven_release_date._cache:
-        return get_maven_release_date._cache[cache_key]
-
-    # Nutzt die Maven Central Search API mit URL-Parametern (robusteres Encoding)
-    search_url = "https://search.maven.org/solrsearch/select"
-    query = f'g:"{group}" AND a:"{artifact}" AND v:"{version}"'
-    params = {"q": query, "rows": 1, "wt": "json"}
-    
+    # 1) search.maven.org timestamp
     try:
-        response = requests.get(search_url, params=params, timeout=5)
-        response.raise_for_status()
-
-        data = response.json()
-
-        if data.get("response", {}).get("numFound", 0) > 0:
-            doc = data["response"]["docs"][0]
-            timestamp_ms = doc.get("timestamp")
-            if timestamp_ms:
-                dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-                get_maven_release_date._cache[cache_key] = dt
+        search = 'https://search.maven.org/solrsearch/select'
+        q = f'g:"{group}" AND a:"{artifact}" AND v:"{version}"'
+        r = SESSION.get(search, params={"q": q, "rows": 1, "wt": "json"}, timeout=DEFAULT_TIMEOUTS['maven_search'])
+        r.raise_for_status()
+        data = r.json()
+        if data.get('response', {}).get('numFound', 0) > 0:
+            doc = data['response']['docs'][0]
+            ts = doc.get('timestamp')
+            if ts:
+                dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+                get_maven_release_date._cache[key] = dt
                 return dt
+    except Exception:
+        pass
 
-        # Fallback: Versuche, das Artefakt-URL auf repo1.maven.org zu prüfen
-        # Baue Pfad: /{groupId path}/{artifact}/{version}/{artifact}-{version}.pom
+    # 2) repo1.maven.org .pom HEAD/GET
+    try:
         group_path = group.replace('.', '/')
-        pom_url = f"https://repo1.maven.org/maven2/{group_path}/{artifact}/{version}/{artifact}-{version}.pom"
-
-        # Zunächst HEAD anfragen, um Last-Modified zu erhalten
-        head_resp = requests.head(pom_url, timeout=4)
-        if head_resp.status_code == 200:
-            last_mod = head_resp.headers.get("Last-Modified")
-            if last_mod:
-                try:
-                    # Parse RFC 2822/1123 dates
-                    from email.utils import parsedate_to_datetime
-                    dt = parsedate_to_datetime(last_mod)
-                    # Ensure timezone-aware
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    get_maven_release_date._cache[cache_key] = dt
-                    return dt
-                except Exception:
-                    # Ignoriere Parsefehler und fahre mit GET fort
-                    pass
-
-        # Wenn HEAD nichts liefert, versuche GET und prüfe Last-Modified
-        get_resp = requests.get(pom_url, timeout=6)
-        if get_resp.status_code == 200:
-            last_mod = get_resp.headers.get("Last-Modified")
-            if last_mod:
+        pom = f'https://repo1.maven.org/maven2/{group_path}/{artifact}/{version}/{artifact}-{version}.pom'
+        h = SESSION.head(pom, timeout=DEFAULT_TIMEOUTS['maven_head'])
+        if h.status_code == 200:
+            lm = h.headers.get('Last-Modified')
+            if lm:
                 from email.utils import parsedate_to_datetime
                 try:
-                    dt = parsedate_to_datetime(last_mod)
+                    dt = parsedate_to_datetime(lm)
                     if dt.tzinfo is None:
                         dt = dt.replace(tzinfo=timezone.utc)
-                    get_maven_release_date._cache[cache_key] = dt
+                    get_maven_release_date._cache[key] = dt
                     return dt
                 except Exception:
                     pass
+        g = SESSION.get(pom, timeout=DEFAULT_TIMEOUTS['maven_get'])
+        if g.status_code == 200:
+            lm = g.headers.get('Last-Modified')
+            if lm:
+                from email.utils import parsedate_to_datetime
+                try:
+                    dt = parsedate_to_datetime(lm)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    get_maven_release_date._cache[key] = dt
+                    return dt
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
-        # Fallback 2: Google's Maven repository (enthält viele AndroidX/Google-Artefakte)
-        google_pom_url = f"https://dl.google.com/dl/android/maven2/{group.replace('.', '/')}/{artifact}/{version}/{artifact}-{version}.pom"
+    # 3) google maven
+    try:
+        # first try dl.google.com (legacy), then maven.google.com
+        gpom = f'https://dl.google.com/dl/android/maven2/{group.replace('.', '/')}/{artifact}/{version}/{artifact}-{version}.pom'
+        h = SESSION.head(gpom, timeout=DEFAULT_TIMEOUTS['maven_head'])
+        if h.status_code == 200:
+            lm = h.headers.get('Last-Modified')
+            if lm:
+                from email.utils import parsedate_to_datetime
+                try:
+                    dt = parsedate_to_datetime(lm)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    get_maven_release_date._cache[key] = dt
+                    return dt
+                except Exception:
+                    pass
+        # try maven.google.com directly (hosts AndroidX artifacts)
         try:
-            head_resp = requests.head(google_pom_url, timeout=4)
-            if head_resp.status_code == 200:
-                last_mod = head_resp.headers.get("Last-Modified")
-                if last_mod:
+            mgpom = f'https://maven.google.com/{group.replace(".", "/")}/{artifact}/{version}/{artifact}-{version}.pom'
+            h2 = SESSION.head(mgpom, timeout=DEFAULT_TIMEOUTS['maven_head'])
+            if h2.status_code == 200:
+                lm = h2.headers.get('Last-Modified')
+                if lm:
                     from email.utils import parsedate_to_datetime
                     try:
-                        dt = parsedate_to_datetime(last_mod)
+                        dt = parsedate_to_datetime(lm)
                         if dt.tzinfo is None:
                             dt = dt.replace(tzinfo=timezone.utc)
-                        get_maven_release_date._cache[cache_key] = dt
+                        get_maven_release_date._cache[key] = dt
                         return dt
                     except Exception:
                         pass
-        except requests.exceptions.RequestException:
-            # Ignoriere Google-Repo-Ausfälle und fahre fort
+                # if no Last-Modified header, try to fetch and parse the POM for <version> info
+                g2 = SESSION.get(mgpom, timeout=DEFAULT_TIMEOUTS['maven_get'])
+                if g2.status_code == 200 and g2.text:
+                    try:
+                        root = ET.fromstring(g2.text)
+                        # try to extract a date from <distributionManagement>/<snapshotRepository> not reliable; skip
+                        pass
+                    except Exception:
+                        pass
+        except Exception:
             pass
 
-        log_error(f"Maven-Artefakt nicht gefunden oder kein Datum verfügbar: g={group} a={artifact} v={version}")
-        get_maven_release_date._cache[cache_key] = None
-        return None
+    except Exception:
+        pass
 
-    except (requests.exceptions.RequestException, json.JSONDecodeError, IndexError) as e:
-        log_error(f"Fehler beim Abrufen von Maven-Daten für {group}:{artifact}:{version}: {e}")
-        return None
+    get_maven_release_date._cache[key] = None
+    return None
 
 
 def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
-    """
-    Prüfe die neueste verfügbare Version eines Maven-Artefakts.
-    Versucht zuerst die `maven-metadata.xml` auf repo1.maven.org, fallback auf search.maven.org.
-    """
+    # repo1 metadata
     try:
         group_path = group.replace('.', '/')
-        metadata_url = f"https://repo1.maven.org/maven2/{group_path}/{artifact}/maven-metadata.xml"
-        resp = requests.get(metadata_url, timeout=6)
-        if resp.status_code == 200 and resp.text:
+        meta = f'https://repo1.maven.org/maven2/{group_path}/{artifact}/maven-metadata.xml'
+        r = SESSION.get(meta, timeout=DEFAULT_TIMEOUTS['maven_get'])
+        if r.status_code == 200 and r.text:
             try:
-                root = ET.fromstring(resp.text)
-                # Suche nach <versioning><release> oder <versioning><latest>
-                versioning = root.find('versioning')
-                if versioning is not None:
-                    release = versioning.findtext('release')
-                    if release:
-                        return release
-                    latest = versioning.findtext('latest')
-                    if latest:
-                        return latest
-                    # Fallback: die letzte in <versions>
-                    versions = versioning.find('versions')
-                    if versions is not None:
-                        vers = [v.text for v in versions.findall('version') if v.text]
-                        if vers:
-                            return vers[-1]
-            except ET.ParseError:
+                root = ET.fromstring(r.text)
+                v = root.findtext('versioning/release') or root.findtext('versioning/latest')
+                if v:
+                    return v
+                vers = root.findall('versioning/versions/version')
+                if vers:
+                    return vers[-1].text
+            except Exception:
                 pass
+    except Exception:
+        pass
 
-        # Fallback: search.maven.org
-        search_url = "https://search.maven.org/solrsearch/select"
-        query = f'g:"{group}" AND a:"{artifact}"'
-        params = {"q": query, "rows": 1, "wt": "json"}
-        resp = requests.get(search_url, params=params, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get('response', {}).get('numFound', 0) > 0:
-            doc = data['response']['docs'][0]
-            # Versuche Felder, die Version angeben können
-            for key in ('latestVersion', 'v', 'version'):
-                if key in doc:
-                    return doc[key]
+    # search.maven.org (broader)
+    try:
+        search = 'https://search.maven.org/solrsearch/select'
+        q = f'g:"{group}" AND a:"{artifact}"'
+        r = SESSION.get(search, params={"q": q, "rows": 50, "wt": "json"}, timeout=DEFAULT_TIMEOUTS['maven_search'])
+        r.raise_for_status()
+        data = r.json()
+        docs = data.get('response', {}).get('docs', [])
+        if not docs:
+            r = SESSION.get(search, params={"q": f'a:"{artifact}"', "rows": 50, "wt": "json"}, timeout=DEFAULT_TIMEOUTS['maven_search'])
+            r.raise_for_status()
+            data = r.json()
+            docs = data.get('response', {}).get('docs', [])
+        candidates = []
+        for d in docs:
+            for k in ('latestVersion', 'v', 'version'):
+                if k in d and d[k]:
+                    candidates.append(str(d[k]))
+        if candidates:
+            uniq = sorted(set(candidates))
+            try:
+                if semver:
+                    uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                return uniq[-1]
+            except Exception:
+                return uniq[-1]
+    except Exception:
+        pass
+
+    # google index
+    try:
+        base = f'https://dl.google.com/dl/android/maven2/{group.replace('.', '/')}/{artifact}/'
+        r = SESSION.get(base, timeout=DEFAULT_TIMEOUTS['maven_search'])
+        if r.status_code == 200 and r.text:
+            import re
+            vers = set(re.findall(r'href="([0-9A-Za-z\.\-]+)/"', r.text))
+            vers = [v.rstrip('/') for v in vers if v]
+            if vers:
+                uniq = sorted(set(vers))
+                try:
+                    if semver:
+                        uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                    return uniq[-1]
+                except Exception:
+                    return uniq[-1]
+    except Exception:
+        pass
+
+    # try maven.google.com metadata or directory listing as a final fallback
+    try:
+        group_path = group.replace('.', '/')
+        meta = f'https://maven.google.com/{group_path}/{artifact}/maven-metadata.xml'
+        rmeta = SESSION.get(meta, timeout=DEFAULT_TIMEOUTS['maven_get'])
+        if rmeta.status_code == 200 and rmeta.text:
+            try:
+                root = ET.fromstring(rmeta.text)
+                v = root.findtext('versioning/release') or root.findtext('versioning/latest')
+                if v:
+                    return v
+                vers = root.findall('versioning/versions/version')
+                if vers:
+                    return vers[-1].text
+            except Exception:
+                pass
+        # directory listing on maven.google.com (HTML) — parse anchors
+        base2 = f'https://maven.google.com/{group_path}/{artifact}/'
+        r2 = SESSION.get(base2, timeout=DEFAULT_TIMEOUTS['maven_search'])
+        if r2.status_code == 200 and r2.text:
+            import re
+            vers = set(re.findall(r'href="([0-9A-Za-z\.\-]+)/"', r2.text))
+            vers = [v.rstrip('/') for v in vers if v]
+            if vers:
+                uniq = sorted(set(vers))
+                try:
+                    if semver:
+                        uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                    return uniq[-1]
+                except Exception:
+                    return uniq[-1]
+    except Exception:
+        pass
+
+    return None
+
+    # if group looks like androidx and we didn't find anything above, try devsite
+    # (this code path normally won't be reached because we return earlier,
+    #  but keep a last-resort check by placing caller responsibility)
+
+
+def get_latest_androidx_from_devsite(artifact: str) -> Optional[str]:
+    """Fallback: parse developer.android.com jetpack/androidx/releases/<artifact>
+    to extract released versions (useful for AndroidX artifacts hosted by Google).
+    This is used only as a last-resort fallback and can be enabled implicitly
+    for groups starting with 'androidx'.
+    """
+    if not artifact:
         return None
-    except requests.exceptions.RequestException:
+    urls = [
+        f'https://developer.android.com/jetpack/androidx/releases/{artifact}',
+        f'https://developer.android.com/jetpack/androidx/releases/{artifact}?hl=en',
+    ]
+    found = set()
+    import re
+    for url in urls:
+        try:
+            r = SESSION.get(url, timeout=15)
+            if r.status_code != 200 or not r.text:
+                continue
+            text = r.text
+            # common anchors like #1.1.0 or id="1.1.0" or <h3>1.1.0</h3>
+            for m in re.findall(r'#["\']?([0-9]+\.[0-9]+(?:\.[0-9A-Za-z._-]+)?)', text):
+                found.add(m)
+            for m in re.findall(r'id=["\']?([0-9]+\.[0-9]+(?:\.[0-9A-Za-z._-]+)?)', text):
+                found.add(m)
+            for m in re.findall(r'>([0-9]+\.[0-9]+(?:\.[0-9A-Za-z._-]+)?)<', text):
+                # filter short matches that look like version headings
+                if re.match(r'^[0-9]+\.[0-9]+(\.[0-9A-Za-z._-]+)?$', m):
+                    found.add(m)
+        except Exception:
+            continue
+
+    if not found:
+        return None
+    # Prefer semver parse if available
+    candidates = list(found)
+    # Prefer stable releases: filter out alpha/beta/rc candidates when possible
+    stable = [v for v in candidates if not re.search(r'(?i)(alpha|beta|rc|preview|m\d|dev|snapshot)', v)]
+    use_list = stable if stable else candidates
+    try:
+        if semver:
+            parsed = []
+            for v in use_list:
+                try:
+                    vi = semver.VersionInfo.parse(v)
+                    parsed.append((vi, v))
+                except Exception:
+                    core = re.match(r'^([0-9]+\.[0-9]+(?:\.[0-9]+)?)', v)
+                    if core:
+                        try:
+                            vi = semver.VersionInfo.parse(core.group(1))
+                            parsed.append((vi, v))
+                        except Exception:
+                            pass
+            if parsed:
+                parsed.sort()
+                return parsed[-1][1]
+    except Exception:
+        pass
+
+    # numeric-like fallback sorting
+    def norm(v: str):
+        parts = []
+        for p in v.split('.'):
+            try:
+                parts.append(int(''.join(ch for ch in p if ch.isdigit()) or 0))
+            except Exception:
+                parts.append(0)
+        return parts
+
+    candidates = sorted(set(candidates), key=norm)
+    return candidates[-1]
+
+
+def get_latest_npm_version(name: str) -> Optional[str]:
+    url = f"https://registry.npmjs.org/{requests.utils.quote(name)}"
+    try:
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['npm'])
+        r.raise_for_status()
+        data = r.json()
+        latest = data.get('dist-tags', {}).get('latest')
+        if latest:
+            return latest
+        versions = data.get('versions', {})
+        if versions:
+            return sorted(versions.keys())[-1]
+        return None
+    except Exception:
+        return None
+
+
+def get_latest_pypi_version(name: str) -> Optional[str]:
+    url = f"https://pypi.org/pypi/{name}/json"
+    try:
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['pypi'])
+        r.raise_for_status()
+        data = r.json()
+        return data.get('info', {}).get('version')
+    except Exception:
+        return None
+
+
+def get_latest_cocoapods_version(name: str) -> Optional[str]:
+    """Query CocoaPods Trunk API to list versions and return the newest one."""
+    if not name:
+        return None
+    url = f'https://trunk.cocoapods.org/api/v1/pods/{name}'
+    try:
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['cocoapods'])
+        r.raise_for_status()
+        data = r.json()
+        versions = [v.get('name') for v in data.get('versions', []) if v.get('name')]
+        if not versions:
+            return None
+        # prefer semver if available
+        try:
+            if semver:
+                versions = sorted(set(versions), key=lambda v: semver.VersionInfo.parse(v))
+                return versions[-1]
+        except Exception:
+            pass
+        return sorted(set(versions))[-1]
+    except Exception:
+        return None
+
+
+def get_cocoapods_release_date(name: str, version: str) -> Optional[datetime]:
+    """Return release date for a CocoaPod version using Trunk API entries."""
+    if not name or not version:
+        return None
+    url = f'https://trunk.cocoapods.org/api/v1/pods/{name}'
+    try:
+        r = SESSION.get(url, timeout=DEFAULT_TIMEOUTS['cocoapods'])
+        r.raise_for_status()
+        data = r.json()
+        for v in data.get('versions', []):
+            if v.get('name') == version:
+                created = v.get('created_at') or v.get('created')
+                if created:
+                    # Trunk uses 'YYYY-MM-DD HH:MM:SS UTC'
+                    try:
+                        dt = datetime.strptime(created.split(' ')[0], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                        return dt
+                    except Exception:
+                        try:
+                            # fallback to full parse
+                            dt = datetime.fromisoformat(created.replace(' UTC', '+00:00'))
+                            return dt
+                        except Exception:
+                            return None
+        return None
+    except Exception:
         return None
 
 
@@ -309,7 +497,6 @@ def _load_persistent_cache(cache_file: str) -> Dict[str, Any]:
             with open(cache_file, 'r', encoding='utf-8') as cf:
                 return json.load(cf)
     except Exception:
-        # ignore cache load errors
         pass
     return {}
 
@@ -321,32 +508,24 @@ def _save_persistent_cache(cache_file: str, cache: Dict[str, Any]):
         with open(cache_file, 'w', encoding='utf-8') as cf:
             json.dump(cache, cf, ensure_ascii=False, indent=2)
     except Exception:
-        # ignore cache write errors
         pass
 
 
 def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]:
-    """Return True if latest > current, False if not, None if unknown/uncomparable."""
     if not current or not latest:
         return None
-    # PyPI: use packaging if available
     try:
         if PackagingVersion and pkg_type == 'pypi':
             try:
                 return PackagingVersion(latest) > PackagingVersion(current)
             except Exception:
                 pass
-
-        # npm/maven/others: try semver if available
         if semver:
             try:
-                # semver.compare returns >0 when v1>v2
                 cmp = semver.compare(str(latest), str(current))
                 return cmp > 0
             except Exception:
                 pass
-
-        # Fallback: loose numeric comparison of dot-separated integers
         def norm(v: str):
             parts = []
             for p in v.split('.'):
@@ -355,10 +534,8 @@ def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]
                 except Exception:
                     parts.append(0)
             return parts
-
         cur = norm(current)
         lat = norm(latest)
-        # compare element-wise
         for a, b in zip(lat, cur):
             if a != b:
                 return a > b
@@ -367,47 +544,10 @@ def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]
         return None
 
 
-def get_latest_npm_version(name: str) -> Optional[str]:
-    url = f"https://registry.npmjs.org/{requests.utils.quote(name)}"
-    try:
-        resp = requests.get(url, timeout=6)
-        resp.raise_for_status()
-        data = resp.json()
-        # dist-tags.latest ist die übliche Quelle für die aktuelle Version
-        latest = data.get('dist-tags', {}).get('latest')
-        if latest:
-            return latest
-        # Fallback: höchste in versions
-        versions = data.get('versions', {})
-        if versions:
-            # versions keys sind Strings; wir geben den letzten lexikographisch
-            return sorted(versions.keys())[-1]
-        return None
-    except requests.exceptions.RequestException:
-        return None
-
-
-def get_latest_pypi_version(name: str) -> Optional[str]:
-    url = f"https://pypi.org/pypi/{name}/json"
-    try:
-        resp = requests.get(url, timeout=6)
-        resp.raise_for_status()
-        data = resp.json()
-        info = data.get('info', {})
-        version = info.get('version')
-        if version:
-            return version
-        return None
-    except requests.exceptions.RequestException:
-        return None
-
 def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None):
-    """
-    Lädt, parst und analysiert die SBOM-Datei auf veraltete Komponenten.
-    """
     try:
         with open(sbom_path, 'r', encoding='utf-8') as f:
-            sbom_data = json.load(f)
+            sbom = json.load(f)
     except FileNotFoundError:
         log_error(f"SBOM-Datei nicht gefunden: {sbom_path}")
         sys.exit(1)
@@ -418,104 +558,98 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         log_error(f"Fehler beim Lesen der SBOM-Datei {sbom_path}: {e}")
         sys.exit(1)
 
-    if "components" not in sbom_data:
-        log_error("SBOM-Datei enthält keinen 'components'-Schlüssel der obersten Ebene.")
-        return
-
-    components = sbom_data.get("components", [])
+    components = sbom.get('components', [])
     if not components:
-        print("Keine Komponenten in der SBOM gefunden.", file=sys.stderr)
+        print('Keine Komponenten in der SBOM gefunden.', file=sys.stderr)
         return
 
     now = datetime.now(timezone.utc)
-    found_vulnerable = False
-
-    # Load persistent cache for latest-version lookups
+    found_vuln = False
     persistent_cache = _load_persistent_cache(cache_file) if check_updates else {}
 
-    for component in components:
-        purl = component.get("purl")
+    for comp in components:
+        purl = comp.get('purl')
         if not purl:
-            # Ignoriere Komponenten ohne PURL
             continue
-
-        parsed_purl = parse_purl(purl)
-        if not parsed_purl:
-            log_error(f"Überspringe Komponente aufgrund eines PURL-Parsing-Fehlers: {purl}")
+        parsed = parse_purl(purl)
+        if not parsed:
             continue
-            
-        pkg_type = parsed_purl["type"]
-        version = parsed_purl["version"]
-        release_date: Optional[datetime] = None
-
-        try:
-            if pkg_type == "pypi":
-                release_date = get_pypi_release_date(parsed_purl["name"], version)
-            elif pkg_type == "npm":
-                release_date = get_npm_release_date(parsed_purl["name"], version)
-            elif pkg_type == "maven":
-                # Handle unspecified or placeholder versions
-                if not version or version.lower() == "unspecified":
-                    log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed_purl.get('group')} a={parsed_purl.get('artifact')} v={version}")
-                    release_date = None
-                else:
-                    release_date = get_maven_release_date(parsed_purl["group"], parsed_purl["artifact"], version)
-            elif pkg_type in ["cargo", "composer", "golang", "spm"]:
-                # Platzhalter für zukünftige Implementierungen
-                # log_error(f"Überspringe nicht unterstützten PURL-Typ: {pkg_type}")
-                pass
+        pkg_type = parsed['type']
+        version = parsed['version']
+        release_date = None
+        if pkg_type == 'pypi':
+            release_date = get_pypi_release_date(parsed.get('name'), version)
+        elif pkg_type == 'npm':
+            release_date = get_npm_release_date(parsed.get('name'), version)
+        elif pkg_type == 'cocoapods':
+            # CocoaPods (Trunk API)
+            # purl name is the pod name (e.g., AFNetworking)
+            release_date = get_cocoapods_release_date(parsed.get('name'), version)
+        elif pkg_type == 'maven':
+            if not version or version.lower() == 'unspecified':
+                log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed.get('group')} a={parsed.get('artifact')} v={version}")
             else:
-                # Unbekannte Typen protokollieren, falls gewünscht
-                # log_error(f"Unbekannter PURL-Typ: {pkg_type}")
-                pass
+                release_date = get_maven_release_date(parsed.get('group'), parsed.get('artifact'), version)
 
-            if release_date:
-                # Sicherstellen, dass das Datum Zeitzonen-bewusst ist (sollte es sein)
-                if release_date.tzinfo is None:
-                    log_error(f"Abgerufenes Datum für {purl} ist nicht Zeitzonen-bewusst. Nehme UTC an.")
-                    release_date = release_date.replace(tzinfo=timezone.utc)
-
-                age = now - release_date
-                age_in_days = age.days
-                
-                if age_in_days > max_age_days:
-                    found_vulnerable = True
-                    print(f"ALARM: {purl} | VÖ: {release_date.date().isoformat()} | Alter: {age_in_days} Tage (Limit: {max_age_days} Tage)")
-
-                    # Prüfe nur für ALARM-Fälle, ob ein Update verfügbar ist
+        if release_date:
+            if release_date.tzinfo is None:
+                release_date = release_date.replace(tzinfo=timezone.utc)
+            age_days = (now - release_date).days
+            if age_days > max_age_days:
+                found_vuln = True
+                alarm = f"ALARM: {purl} | VÖ: {release_date.date().isoformat()} | Alter: {age_days} Tage (Limit: {max_age_days} Tage)"
+                if check_updates:
+                    latest = None
                     try:
-                        latest = None
-                        if pkg_type == "pypi":
-                            latest = get_latest_pypi_version(parsed_purl["name"])
-                        elif pkg_type == "npm":
-                            latest = get_latest_npm_version(parsed_purl["name"])
-                        elif pkg_type == "maven":
-                            latest = get_latest_maven_version(parsed_purl.get("group"), parsed_purl.get("artifact"))
-
-                            if check_updates and latest and latest != version:
-                                # consult persistent cache key
-                                cache_key = f"latest:{pkg_type}:{parsed_purl.get('group') or parsed_purl.get('name')}:{parsed_purl.get('artifact') or ''}"
-                                # if cached result exists, use it
-                                cached = persistent_cache.get(cache_key)
-                                if cached and cached.get('latest') == latest:
-                                    newer = cached.get('newer')
-                                else:
-                                    newer = compare_versions(version, latest, pkg_type)
-                                    persistent_cache[cache_key] = {'latest': latest, 'newer': newer}
-
-                                # only print update if latest > current (newer == True) or unknown but different
-                                if newer is True or (newer is None and latest != version):
-                                    print(f"UPDATE_AVAILABLE: {purl} -> latest: {latest} (aktuell: {version})")
+                        if pkg_type == 'pypi':
+                            latest = get_latest_pypi_version(parsed.get('name'))
+                        elif pkg_type == 'npm':
+                            latest = get_latest_npm_version(parsed.get('name'))
+                        elif pkg_type == 'maven':
+                            latest = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
+                            if (not latest) and parsed.get('group', '').startswith('androidx'):
+                                devsite_ver = get_latest_androidx_from_devsite(parsed.get('artifact'))
+                                if devsite_ver:
+                                    latest = devsite_ver
+                        elif pkg_type == 'cocoapods':
+                            latest = get_latest_cocoapods_version(parsed.get('name'))
+                            if (not latest) and parsed.get('group', '').startswith('androidx'):
+                                # try developer.android.com Jetpack / AndroidX release page as a fallback
+                                devsite_ver = get_latest_androidx_from_devsite(parsed.get('artifact'))
+                                if devsite_ver:
+                                    latest = devsite_ver
+                        if latest and latest != version:
+                            cache_key = f"latest:{pkg_type}:{parsed.get('group') or parsed.get('name')}:{parsed.get('artifact') or ''}"
+                            cached = persistent_cache.get(cache_key)
+                            if cached and cached.get('latest') == latest:
+                                newer = cached.get('newer')
+                            else:
+                                newer = compare_versions(version, latest, pkg_type)
+                                persistent_cache[cache_key] = {'latest': latest, 'newer': newer}
+                            if newer is True or (newer is None and latest != version):
+                                alarm += f" | UPDATE_AVAILABLE: latest: {latest} (aktuell: {version})"
                     except Exception:
-                        # Nicht kritisch, nur Info-Versuche
                         pass
+                print(alarm)
 
-        except Exception as e:
-            # Fängt alle unerwarteten Fehler während der Verarbeitung einer einzelnen Komponente ab
-            log_error(f"Unerwarteter Fehler bei der Verarbeitung von {purl}: {e}")
-            
-    if not found_vulnerable:
+    if not found_vuln:
         print(f"Analyse abgeschlossen. Keine Komponenten älter als {max_age_days} Tage gefunden.", file=sys.stderr)
+    else:
+        if check_updates and cache_file:
+            _save_persistent_cache(cache_file, persistent_cache)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Analysiert eine CycloneDX 1.5 SBOM auf veraltete Komponenten.')
+    parser.add_argument('--sbom', required=True, help='Der Dateipfad zur CycloneDX 1.5 JSON-Datei.')
+    parser.add_argument('--age', required=True, type=int, help='Das maximal zulässige Alter einer Komponente in Tagen (z. B. 90).')
+    parser.add_argument('--check-updates', action='store_true', help='Wenn gesetzt, prüft das Skript zusätzlich, ob für ALARM-Komponenten neuere Versionen in den Registries vorliegen.')
+    parser.add_argument('--cache-file', default='.sbom-check-cache.json', help='Datei, in der Lookup-Ergebnisse (z.B. gefundene neueste Versionen) zwischengespeichert werden.')
+    args = parser.parse_args()
+    if args.age <= 0:
+        log_error('--age muss ein positiver Integer sein.')
+        sys.exit(1)
+    analyze_sbom(args.sbom, args.age, check_updates=args.check_updates, cache_file=(args.cache_file if args.check_updates else None))
 
 def main():
     """
