@@ -18,7 +18,8 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -524,6 +525,13 @@ def _save_persistent_cache(cache_file: str, cache: Dict[str, Any]):
         pass
 
 
+def _make_release_cache_key(pkg_type: str, parsed: Dict[str, str]) -> str:
+    # key: release:{pkg_type}:{name or group}:{artifact or ''}:{version}
+    if pkg_type == 'maven':
+        return f"release:{pkg_type}:{parsed.get('group') or ''}:{parsed.get('artifact') or ''}:{parsed.get('version') or ''}"
+    return f"release:{pkg_type}:{parsed.get('name') or ''}::{parsed.get('version') or ''}"
+
+
 def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]:
     if not current or not latest:
         return None
@@ -557,7 +565,7 @@ def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]
         return None
 
 
-def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None):
+def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None, max_workers: int = 6):
     try:
         with open(sbom_path, 'r', encoding='utf-8') as f:
             sbom = json.load(f)
@@ -579,10 +587,13 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
     now = datetime.now(timezone.utc)
     found_vuln = False
     persistent_cache = _load_persistent_cache(cache_file) if check_updates else {}
-    # in-memory caches for this run to avoid duplicate HTTP calls
-    transient_latest_cache = {}
-    transient_release_cache = {}
 
+    # transient in-memory caches for this run
+    transient_latest_cache: Dict[str, str] = {}
+    transient_release_cache: Dict[str, Optional[datetime]] = {}
+
+    # build list of components to fetch release dates for
+    work_items: list[Tuple[str, Dict[str, str], str]] = []  # (purl, parsed, pkg_type)
     for comp in components:
         purl = comp.get('purl')
         if not purl:
@@ -591,81 +602,141 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         if not parsed:
             continue
         pkg_type = parsed['type']
-        version = parsed['version']
-        release_date = None
-        if pkg_type == 'pypi':
-            release_date = get_pypi_release_date(parsed.get('name'), version)
-        elif pkg_type == 'npm':
-            release_date = get_npm_release_date(parsed.get('name'), version)
-        elif pkg_type == 'cocoapods':
-            # CocoaPods (Trunk API)
-            # purl name is the pod name (e.g., AFNetworking)
-            release_date = get_cocoapods_release_date(parsed.get('name'), version)
-        elif pkg_type == 'cargo':
-            # crates.io
-            release_date = get_crates_release_date(parsed.get('name'), version)
-        elif pkg_type == 'maven':
-            if not version or version.lower() == 'unspecified':
-                log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed.get('group')} a={parsed.get('artifact')} v={version}")
-            else:
-                release_date = get_maven_release_date(parsed.get('group'), parsed.get('artifact'), version)
+        work_items.append((purl, parsed, pkg_type))
 
-        if release_date:
-            if release_date.tzinfo is None:
-                release_date = release_date.replace(tzinfo=timezone.utc)
-            age_days = (now - release_date).days
-            if age_days > max_age_days:
-                found_vuln = True
-                alarm = f"ALARM: {purl} | VÖ: {release_date.date().isoformat()} | Alter: {age_days} Tage (Limit: {max_age_days} Tage)"
-                if check_updates:
-                    latest = None
-                    try:
-                        # compute a simple cache name for lookups: use pkg_type and name (and artifact/group where appropriate)
-                        if pkg_type == 'pypi':
-                            lookup_name = parsed.get('name')
-                            cache_key = f"latest:{pkg_type}:{lookup_name}"
-                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
-                            if not latest:
-                                latest = get_latest_pypi_version(parsed.get('name'))
-                        elif pkg_type == 'npm':
-                            lookup_name = parsed.get('name')
-                            cache_key = f"latest:{pkg_type}:{lookup_name}"
-                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
-                            if not latest:
-                                latest = get_latest_npm_version(parsed.get('name'))
-                        elif pkg_type == 'maven':
-                            lookup_name = f"{parsed.get('group') or ''}:{parsed.get('artifact') or ''}"
-                            cache_key = f"latest:{pkg_type}:{lookup_name}"
-                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
-                            if not latest:
-                                latest = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
-                        elif pkg_type == 'cocoapods':
-                            lookup_name = parsed.get('name')
-                            cache_key = f"latest:{pkg_type}:{lookup_name}"
-                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
-                            if not latest:
-                                latest = get_latest_cocoapods_version(parsed.get('name'))
-                        elif pkg_type == 'cargo':
-                            lookup_name = parsed.get('name')
-                            cache_key = f"latest:{pkg_type}:{lookup_name}"
-                            latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
-                            if not latest:
-                                latest = get_latest_crates_version(parsed.get('name'))
+    # helper to fetch release date with cache
+    def fetch_release(item: Tuple[str, Dict[str, str], str]) -> Tuple[str, Optional[datetime], Dict[str, str]]:
+        purl, parsed, pkg_type = item
+        cache_key = _make_release_cache_key(pkg_type, parsed)
+        # check persistent cache first
+        if check_updates and cache_file:
+            cached = persistent_cache.get(cache_key)
+            if cached and cached.get('date'):
+                try:
+                    return purl, datetime.fromisoformat(cached['date']), parsed
+                except Exception:
+                    pass
+        # transient release cache
+        if cache_key in transient_release_cache:
+            return purl, transient_release_cache[cache_key], parsed
+        # perform lookup
+        version = parsed.get('version')
+        rd = None
+        try:
+            if pkg_type == 'pypi':
+                rd = get_pypi_release_date(parsed.get('name'), version)
+            elif pkg_type == 'npm':
+                rd = get_npm_release_date(parsed.get('name'), version)
+            elif pkg_type == 'cocoapods':
+                rd = get_cocoapods_release_date(parsed.get('name'), version)
+            elif pkg_type == 'cargo':
+                rd = get_crates_release_date(parsed.get('name'), version)
+            elif pkg_type == 'maven':
+                if not version or version.lower() == 'unspecified':
+                    log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed.get('group')} a={parsed.get('artifact')} v={version}")
+                else:
+                    rd = get_maven_release_date(parsed.get('group'), parsed.get('artifact'), version)
+        except Exception:
+            rd = None
 
-                        if latest and latest != version:
-                            # ensure we cache the computed latest for this run and persist it
-                            transient_latest_cache[cache_key] = latest
-                            cached = persistent_cache.get(cache_key)
-                            if cached and cached.get('latest') == latest:
-                                newer = cached.get('newer')
-                            else:
-                                newer = compare_versions(version, latest, pkg_type)
-                                persistent_cache[cache_key] = {'latest': latest, 'newer': newer}
-                            if newer is True or (newer is None and latest != version):
-                                alarm += f" | UPDATE_AVAILABLE: latest: {latest} (aktuell: {version})"
-                    except Exception:
-                        pass
-                print(alarm)
+        if rd and rd.tzinfo is None:
+            rd = rd.replace(tzinfo=timezone.utc)
+
+        transient_release_cache[cache_key] = rd
+        # persist release date if requested
+        if check_updates and cache_file:
+            try:
+                persistent_cache[cache_key] = {'date': rd.isoformat() if rd else None}
+            except Exception:
+                pass
+        return purl, rd, parsed
+
+    # fetch release dates in parallel
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(fetch_release, it): it for it in work_items}
+        for fut in as_completed(futures):
+            try:
+                results.append(fut.result())
+            except Exception:
+                pass
+
+    # collect ALARM candidates
+    alarms = []  # (purl, parsed, release_date, age_days)
+    for purl, rd, parsed in results:
+        if not rd:
+            continue
+        age_days = (now - rd).days
+        if age_days > max_age_days:
+            alarms.append((purl, parsed, rd, age_days))
+
+    # fetch latest versions for alarm items in parallel
+    def fetch_latest_for_alarm(alarm_item):
+        purl, parsed, rd, age_days = alarm_item
+        pkg_type = parsed['type']
+        version = parsed.get('version')
+        latest = None
+        cache_key = None
+        try:
+            if pkg_type == 'pypi':
+                cache_key = f"latest:{pkg_type}:{parsed.get('name')}"
+                latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                if not latest:
+                    latest = get_latest_pypi_version(parsed.get('name'))
+            elif pkg_type == 'npm':
+                cache_key = f"latest:{pkg_type}:{parsed.get('name')}"
+                latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                if not latest:
+                    latest = get_latest_npm_version(parsed.get('name'))
+            elif pkg_type == 'maven':
+                lookup_name = f"{parsed.get('group') or ''}:{parsed.get('artifact') or ''}"
+                cache_key = f"latest:{pkg_type}:{lookup_name}"
+                latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                if not latest:
+                    latest = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
+            elif pkg_type == 'cocoapods':
+                cache_key = f"latest:{pkg_type}:{parsed.get('name')}"
+                latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                if not latest:
+                    latest = get_latest_cocoapods_version(parsed.get('name'))
+            elif pkg_type == 'cargo':
+                cache_key = f"latest:{pkg_type}:{parsed.get('name')}"
+                latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
+                if not latest:
+                    latest = get_latest_crates_version(parsed.get('name'))
+        except Exception:
+            latest = None
+
+        if latest and cache_key:
+            transient_latest_cache[cache_key] = latest
+            cached = persistent_cache.get(cache_key)
+            if not (cached and cached.get('latest') == latest):
+                try:
+                    newer = compare_versions(parsed.get('version'), latest, parsed.get('type'))
+                except Exception:
+                    newer = None
+                persistent_cache[cache_key] = {'latest': latest, 'newer': newer}
+
+        return (purl, parsed, rd, age_days, latest)
+
+    latest_results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(fetch_latest_for_alarm, a): a for a in alarms}
+        for fut in as_completed(futures):
+            try:
+                latest_results.append(fut.result())
+            except Exception:
+                pass
+
+    # print alarms with inline update info
+    for purl, parsed, rd, age_days, latest in latest_results:
+        found_vuln = True
+        alarm = f"ALARM: {purl} | VÖ: {rd.date().isoformat()} | Alter: {age_days} Tage (Limit: {max_age_days} Tage)"
+        if latest and latest != parsed.get('version'):
+            newer = persistent_cache.get(f"latest:{parsed.get('type')}:{parsed.get('name')}", {}).get('newer')
+            if newer is True or (newer is None and latest != parsed.get('version')):
+                alarm += f" | UPDATE_AVAILABLE: latest: {latest} (aktuell: {parsed.get('version')})"
+        print(alarm)
 
     if not found_vuln:
         print(f"Analyse abgeschlossen. Keine Komponenten älter als {max_age_days} Tage gefunden.", file=sys.stderr)
@@ -681,65 +752,27 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Analysiert eine CycloneDX 1.5 SBOM auf veraltete Komponenten.')
-    parser.add_argument('--sbom', required=True, help='Der Dateipfad zur CycloneDX 1.5 JSON-Datei.')
-    parser.add_argument('--age', required=True, type=int, help='Das maximal zulässige Alter einer Komponente in Tagen (z. B. 90).')
-    parser.add_argument('--check-updates', action='store_true', help='Wenn gesetzt, prüft das Skript zusätzlich, ob für ALARM-Komponenten neuere Versionen in den Registries vorliegen.')
-    parser.add_argument('--cache-file', default='.sbom-check-cache.json', help='Datei, in der Lookup-Ergebnisse (z.B. gefundene neueste Versionen) zwischengespeichert werden.')
-    args = parser.parse_args()
-    if args.age <= 0:
-        log_error('--age muss ein positiver Integer sein.')
-        sys.exit(1)
-    analyze_sbom(args.sbom, args.age, check_updates=args.check_updates, cache_file=(args.cache_file if args.check_updates else None))
-
-def main():
-    """
-    Hauptfunktion zum Parsen von Argumenten und Starten der Analyse.
-    """
     parser = argparse.ArgumentParser(
         description="Analysiert eine CycloneDX 1.5 SBOM auf veraltete Komponenten.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    
-    parser.add_argument(
-        "--sbom",
-        required=True,
-        help="Der Dateipfad zur CycloneDX 1.5 JSON-Datei."
-    )
-    
-    parser.add_argument(
-        "--age",
-        required=True,
-        type=int,
-        help="Das maximal zulässige Alter einer Komponente in Tagen (z. B. 90)."
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument(
-        "--check-updates",
-        action="store_true",
-        help="Wenn gesetzt, prüft das Skript zusätzlich, ob für ALARM-Komponenten neuere Versionen in den Registries vorliegen."
-    )
+    parser.add_argument("--sbom", required=True, help="Der Dateipfad zur CycloneDX 1.5 JSON-Datei.")
+    parser.add_argument("--age", required=True, type=int, help="Das maximal zulässige Alter einer Komponente in Tagen (z. B. 90).")
+    parser.add_argument("--check-updates", action="store_true", help="Wenn gesetzt, prüft das Skript zusätzlich, ob für ALARM-Komponenten neuere Versionen in den Registries vorliegen.")
+    parser.add_argument("--cache-file", default=".sbom-check-cache.json", help="Datei, in der Lookup-Ergebnisse (z.B. gefundene neueste Versionen) zwischengespeichert werden.")
+    parser.add_argument("--max-workers", type=int, default=6, help="Maximale Anzahl paralleler Worker für Registry-Anfragen.")
 
-    parser.add_argument(
-        "--cache-file",
-        default=".sbom-check-cache.json",
-        help="Datei, in der Lookup-Ergebnisse (z.B. gefundene neueste Versionen) zwischengespeichert werden.")
-    
     args = parser.parse_args()
-    
     if args.age <= 0:
         log_error("--age muss ein positiver Integer sein.")
         sys.exit(1)
-        
-    analyze_sbom(args.sbom, args.age, check_updates=args.check_updates, cache_file=(args.cache_file if args.check_updates else None))
 
-    # Wenn Update-Checks aktiv und Cache-File angegeben, persistieren wir den Cache
+    analyze_sbom(args.sbom, args.age, check_updates=args.check_updates, cache_file=(args.cache_file if args.check_updates else None), max_workers=args.max_workers)
+
+    # ensure cache persisted
     if args.check_updates and args.cache_file:
-        # persistent cache wurde im analyze_sbom geladen und gefüllt; lade & save (defensive)
-        # _save_persistent_cache wird in analyze_sbom am Ende aufgerufen, aber wir rufen es hier nochmal sicherheitshalber
         try:
-            # Re-load to merge possible in-memory modifications
-            # (analyze_sbom nutzt interne Variable; to keep it simple we re-run save with same file)
             _save_persistent_cache(args.cache_file, _load_persistent_cache(args.cache_file))
         except Exception:
             pass
