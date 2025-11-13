@@ -15,6 +15,7 @@ import sys
 from datetime import datetime, timezone
 import requests
 from typing import Optional, Dict, Any
+import xml.etree.ElementTree as ET
 
 # Konfigurieren Sie ein einfaches Logging für Fehlermeldungen auf stderr
 def log_error(message: str):
@@ -239,6 +240,89 @@ def get_maven_release_date(group: str, artifact: str, version: str) -> Optional[
         log_error(f"Fehler beim Abrufen von Maven-Daten für {group}:{artifact}:{version}: {e}")
         return None
 
+
+def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
+    """
+    Prüfe die neueste verfügbare Version eines Maven-Artefakts.
+    Versucht zuerst die `maven-metadata.xml` auf repo1.maven.org, fallback auf search.maven.org.
+    """
+    try:
+        group_path = group.replace('.', '/')
+        metadata_url = f"https://repo1.maven.org/maven2/{group_path}/{artifact}/maven-metadata.xml"
+        resp = requests.get(metadata_url, timeout=6)
+        if resp.status_code == 200 and resp.text:
+            try:
+                root = ET.fromstring(resp.text)
+                # Suche nach <versioning><release> oder <versioning><latest>
+                versioning = root.find('versioning')
+                if versioning is not None:
+                    release = versioning.findtext('release')
+                    if release:
+                        return release
+                    latest = versioning.findtext('latest')
+                    if latest:
+                        return latest
+                    # Fallback: die letzte in <versions>
+                    versions = versioning.find('versions')
+                    if versions is not None:
+                        vers = [v.text for v in versions.findall('version') if v.text]
+                        if vers:
+                            return vers[-1]
+            except ET.ParseError:
+                pass
+
+        # Fallback: search.maven.org
+        search_url = "https://search.maven.org/solrsearch/select"
+        query = f'g:"{group}" AND a:"{artifact}"'
+        params = {"q": query, "rows": 1, "wt": "json"}
+        resp = requests.get(search_url, params=params, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get('response', {}).get('numFound', 0) > 0:
+            doc = data['response']['docs'][0]
+            # Versuche Felder, die Version angeben können
+            for key in ('latestVersion', 'v', 'version'):
+                if key in doc:
+                    return doc[key]
+        return None
+    except requests.exceptions.RequestException:
+        return None
+
+
+def get_latest_npm_version(name: str) -> Optional[str]:
+    url = f"https://registry.npmjs.org/{requests.utils.quote(name)}"
+    try:
+        resp = requests.get(url, timeout=6)
+        resp.raise_for_status()
+        data = resp.json()
+        # dist-tags.latest ist die übliche Quelle für die aktuelle Version
+        latest = data.get('dist-tags', {}).get('latest')
+        if latest:
+            return latest
+        # Fallback: höchste in versions
+        versions = data.get('versions', {})
+        if versions:
+            # versions keys sind Strings; wir geben den letzten lexikographisch
+            return sorted(versions.keys())[-1]
+        return None
+    except requests.exceptions.RequestException:
+        return None
+
+
+def get_latest_pypi_version(name: str) -> Optional[str]:
+    url = f"https://pypi.org/pypi/{name}/json"
+    try:
+        resp = requests.get(url, timeout=6)
+        resp.raise_for_status()
+        data = resp.json()
+        info = data.get('info', {})
+        version = info.get('version')
+        if version:
+            return version
+        return None
+    except requests.exceptions.RequestException:
+        return None
+
 def analyze_sbom(sbom_path: str, max_age_days: int):
     """
     Lädt, parst und analysiert die SBOM-Datei auf veraltete Komponenten.
@@ -316,6 +400,22 @@ def analyze_sbom(sbom_path: str, max_age_days: int):
                 if age_in_days > max_age_days:
                     found_vulnerable = True
                     print(f"ALARM: {purl} | VÖ: {release_date.date().isoformat()} | Alter: {age_in_days} Tage (Limit: {max_age_days} Tage)")
+
+                    # Prüfe nur für ALARM-Fälle, ob ein Update verfügbar ist
+                    try:
+                        latest = None
+                        if pkg_type == "pypi":
+                            latest = get_latest_pypi_version(parsed_purl["name"])
+                        elif pkg_type == "npm":
+                            latest = get_latest_npm_version(parsed_purl["name"])
+                        elif pkg_type == "maven":
+                            latest = get_latest_maven_version(parsed_purl.get("group"), parsed_purl.get("artifact"))
+
+                        if latest and latest != version:
+                            print(f"UPDATE_AVAILABLE: {purl} -> latest: {latest} (aktuell: {version})")
+                    except Exception:
+                        # Nicht kritisch, nur Info-Versuche
+                        pass
 
         except Exception as e:
             # Fängt alle unerwarteten Fehler während der Verarbeitung einer einzelnen Komponente ab
