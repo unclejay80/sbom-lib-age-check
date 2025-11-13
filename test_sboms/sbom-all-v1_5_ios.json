@@ -1,0 +1,1473 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:8f159d87-b5a5-4ee5-a2b5-423f21a461eb",
+  "version": 1,
+  "metadata": {
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "group": "aquasecurity",
+          "name": "trivy",
+          "version": "0.60.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "d80459da-2ed1-480a-803c-1cec099032ba",
+      "name": ".",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:SchemaVersion",
+          "value": "2"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "5ef8eff1-c931-4637-afb5-4c7d633c9541",
+      "name": "Podfile.lock",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "8e3615aa-15ed-444e-b8b1-2127e1e809ec",
+      "name": "Riot.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/AFNetworking@4.0.1",
+      "name": "AFNetworking",
+      "version": "4.0.1",
+      "purl": "pkg:cocoapods/AFNetworking@4.0.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "AFNetworking@4.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/AFNetworking@4.0.1#NSURLSession",
+      "name": "AFNetworking/NSURLSession",
+      "version": "4.0.1",
+      "purl": "pkg:cocoapods/AFNetworking@4.0.1#NSURLSession",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "AFNetworking/NSURLSession@4.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/AFNetworking@4.0.1#Reachability",
+      "name": "AFNetworking/Reachability",
+      "version": "4.0.1",
+      "purl": "pkg:cocoapods/AFNetworking@4.0.1#Reachability",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "AFNetworking/Reachability@4.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/AFNetworking@4.0.1#Security",
+      "name": "AFNetworking/Security",
+      "version": "4.0.1",
+      "purl": "pkg:cocoapods/AFNetworking@4.0.1#Security",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "AFNetworking/Security@4.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/AFNetworking@4.0.1#Serialization",
+      "name": "AFNetworking/Serialization",
+      "version": "4.0.1",
+      "purl": "pkg:cocoapods/AFNetworking@4.0.1#Serialization",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "AFNetworking/Serialization@4.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/AFNetworking@4.0.1#UIKit",
+      "name": "AFNetworking/UIKit",
+      "version": "4.0.1",
+      "purl": "pkg:cocoapods/AFNetworking@4.0.1#UIKit",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "AFNetworking/UIKit@4.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DSWaveformImage@6.1.1",
+      "name": "DSWaveformImage",
+      "version": "6.1.1",
+      "purl": "pkg:cocoapods/DSWaveformImage@6.1.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DSWaveformImage@6.1.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTCoreText@1.6.26",
+      "name": "DTCoreText",
+      "version": "1.6.26",
+      "purl": "pkg:cocoapods/DTCoreText@1.6.26",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTCoreText@1.6.26"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTCoreText@1.6.26#Core",
+      "name": "DTCoreText/Core",
+      "version": "1.6.26",
+      "purl": "pkg:cocoapods/DTCoreText@1.6.26#Core",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTCoreText/Core@1.6.26"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTFoundation@1.7.19#Core",
+      "name": "DTFoundation/Core",
+      "version": "1.7.19",
+      "purl": "pkg:cocoapods/DTFoundation@1.7.19#Core",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTFoundation/Core@1.7.19"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTFoundation@1.7.19#DTAnimatedGIF",
+      "name": "DTFoundation/DTAnimatedGIF",
+      "version": "1.7.19",
+      "purl": "pkg:cocoapods/DTFoundation@1.7.19#DTAnimatedGIF",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTFoundation/DTAnimatedGIF@1.7.19"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTFoundation@1.7.19#DTHTMLParser",
+      "name": "DTFoundation/DTHTMLParser",
+      "version": "1.7.19",
+      "purl": "pkg:cocoapods/DTFoundation@1.7.19#DTHTMLParser",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTFoundation/DTHTMLParser@1.7.19"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTFoundation@1.7.19#UIKit",
+      "name": "DTFoundation/UIKit",
+      "version": "1.7.19",
+      "purl": "pkg:cocoapods/DTFoundation@1.7.19#UIKit",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTFoundation/UIKit@1.7.19"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/DTTJailbreakDetection@0.4.0",
+      "name": "DTTJailbreakDetection",
+      "version": "0.4.0",
+      "purl": "pkg:cocoapods/DTTJailbreakDetection@0.4.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "DTTJailbreakDetection@0.4.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Down@0.11.0",
+      "name": "Down",
+      "version": "0.11.0",
+      "purl": "pkg:cocoapods/Down@0.11.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Down@0.11.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/FlowCommoniOS@1.12.2",
+      "name": "FlowCommoniOS",
+      "version": "1.12.2",
+      "purl": "pkg:cocoapods/FlowCommoniOS@1.12.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "FlowCommoniOS@1.12.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/GBDeviceInfo@7.1.0",
+      "name": "GBDeviceInfo",
+      "version": "7.1.0",
+      "purl": "pkg:cocoapods/GBDeviceInfo@7.1.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "GBDeviceInfo@7.1.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/GBDeviceInfo@7.1.0#Core",
+      "name": "GBDeviceInfo/Core",
+      "version": "7.1.0",
+      "purl": "pkg:cocoapods/GBDeviceInfo@7.1.0#Core",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "GBDeviceInfo/Core@7.1.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/GZIP@1.3.2",
+      "name": "GZIP",
+      "version": "1.3.2",
+      "purl": "pkg:cocoapods/GZIP@1.3.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "GZIP@1.3.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Introspect@0.12.0",
+      "name": "Introspect",
+      "version": "0.12.0",
+      "purl": "pkg:cocoapods/Introspect@0.12.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Introspect@0.12.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/KTCenterFlowLayout@1.3.1",
+      "name": "KTCenterFlowLayout",
+      "version": "1.3.1",
+      "purl": "pkg:cocoapods/KTCenterFlowLayout@1.3.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "KTCenterFlowLayout@1.3.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/KeychainAccess@4.2.2",
+      "name": "KeychainAccess",
+      "version": "4.2.2",
+      "purl": "pkg:cocoapods/KeychainAccess@4.2.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "KeychainAccess@4.2.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/MatomoTracker@7.5.2",
+      "name": "MatomoTracker",
+      "version": "7.5.2",
+      "purl": "pkg:cocoapods/MatomoTracker@7.5.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "MatomoTracker@7.5.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/MatomoTracker@7.5.2#Core",
+      "name": "MatomoTracker/Core",
+      "version": "7.5.2",
+      "purl": "pkg:cocoapods/MatomoTracker@7.5.2#Core",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "MatomoTracker/Core@7.5.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/MatrixSDK@0.27.17",
+      "name": "MatrixSDK",
+      "version": "0.27.17",
+      "purl": "pkg:cocoapods/MatrixSDK@0.27.17",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "MatrixSDK@0.27.17"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/MatrixSDK@0.27.17#Core",
+      "name": "MatrixSDK/Core",
+      "version": "0.27.17",
+      "purl": "pkg:cocoapods/MatrixSDK@0.27.17#Core",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "MatrixSDK/Core@0.27.17"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/MatrixSDKCrypto@0.11.1",
+      "name": "MatrixSDKCrypto",
+      "version": "0.11.1",
+      "purl": "pkg:cocoapods/MatrixSDKCrypto@0.11.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "MatrixSDKCrypto@0.11.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/ReadMoreTextView@3.0.1",
+      "name": "ReadMoreTextView",
+      "version": "3.0.1",
+      "purl": "pkg:cocoapods/ReadMoreTextView@3.0.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "ReadMoreTextView@3.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Realm@10.27.0",
+      "name": "Realm",
+      "version": "10.27.0",
+      "purl": "pkg:cocoapods/Realm@10.27.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Realm@10.27.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Realm@10.27.0#Headers",
+      "name": "Realm/Headers",
+      "version": "10.27.0",
+      "purl": "pkg:cocoapods/Realm@10.27.0#Headers",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Realm/Headers@10.27.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Reusable@4.1.2",
+      "name": "Reusable",
+      "version": "4.1.2",
+      "purl": "pkg:cocoapods/Reusable@4.1.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Reusable@4.1.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Reusable@4.1.2#Storyboard",
+      "name": "Reusable/Storyboard",
+      "version": "4.1.2",
+      "purl": "pkg:cocoapods/Reusable@4.1.2#Storyboard",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Reusable/Storyboard@4.1.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/Reusable@4.1.2#View",
+      "name": "Reusable/View",
+      "version": "4.1.2",
+      "purl": "pkg:cocoapods/Reusable@4.1.2#View",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "Reusable/View@4.1.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/SideMenu@6.5.0",
+      "name": "SideMenu",
+      "version": "6.5.0",
+      "purl": "pkg:cocoapods/SideMenu@6.5.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "SideMenu@6.5.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/SwiftFormat@0.54.5#CLI",
+      "name": "SwiftFormat/CLI",
+      "version": "0.54.5",
+      "purl": "pkg:cocoapods/SwiftFormat@0.54.5#CLI",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "SwiftFormat/CLI@0.54.5"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/SwiftGen@6.6.3",
+      "name": "SwiftGen",
+      "version": "6.6.3",
+      "purl": "pkg:cocoapods/SwiftGen@6.6.3",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "SwiftGen@6.6.3"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/SwiftLint@0.57.0",
+      "name": "SwiftLint",
+      "version": "0.57.0",
+      "purl": "pkg:cocoapods/SwiftLint@0.57.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "SwiftLint@0.57.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/SwiftyBeaver@1.9.5",
+      "name": "SwiftyBeaver",
+      "version": "1.9.5",
+      "purl": "pkg:cocoapods/SwiftyBeaver@1.9.5",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "SwiftyBeaver@1.9.5"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/UICollectionViewLeftAlignedLayout@1.0.2",
+      "name": "UICollectionViewLeftAlignedLayout",
+      "version": "1.0.2",
+      "purl": "pkg:cocoapods/UICollectionViewLeftAlignedLayout@1.0.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "UICollectionViewLeftAlignedLayout@1.0.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/UICollectionViewRightAlignedLayout@0.0.3",
+      "name": "UICollectionViewRightAlignedLayout",
+      "version": "0.0.3",
+      "purl": "pkg:cocoapods/UICollectionViewRightAlignedLayout@0.0.3",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "UICollectionViewRightAlignedLayout@0.0.3"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/WeakDictionary@2.0.2",
+      "name": "WeakDictionary",
+      "version": "2.0.2",
+      "purl": "pkg:cocoapods/WeakDictionary@2.0.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "WeakDictionary@2.0.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/ZXingObjC@3.6.9",
+      "name": "ZXingObjC",
+      "version": "3.6.9",
+      "purl": "pkg:cocoapods/ZXingObjC@3.6.9",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "ZXingObjC@3.6.9"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/ZXingObjC@3.6.9#All",
+      "name": "ZXingObjC/All",
+      "version": "3.6.9",
+      "purl": "pkg:cocoapods/ZXingObjC@3.6.9#All",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "ZXingObjC/All@3.6.9"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/libPhoneNumber-iOS@0.9.15",
+      "name": "libPhoneNumber-iOS",
+      "version": "0.9.15",
+      "purl": "pkg:cocoapods/libPhoneNumber-iOS@0.9.15",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "libPhoneNumber-iOS@0.9.15"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/libbase58@0.1.4",
+      "name": "libbase58",
+      "version": "0.1.4",
+      "purl": "pkg:cocoapods/libbase58@0.1.4",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "libbase58@0.1.4"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cocoapods/zxcvbn-ios@1.0.4",
+      "name": "zxcvbn-ios",
+      "version": "1.0.4",
+      "purl": "pkg:cocoapods/zxcvbn-ios@1.0.4",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "zxcvbn-ios@1.0.4"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "cocoapods"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Cocoanetics/DTCoreText@1.6.26",
+      "name": "github.com/Cocoanetics/DTCoreText",
+      "version": "1.6.26",
+      "purl": "pkg:swift/github.com/Cocoanetics/DTCoreText@1.6.26",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Cocoanetics/DTCoreText@1.6.26"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Cocoanetics/DTFoundation@1.7.18",
+      "name": "github.com/Cocoanetics/DTFoundation",
+      "version": "1.7.18",
+      "purl": "pkg:swift/github.com/Cocoanetics/DTFoundation@1.7.18",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Cocoanetics/DTFoundation@1.7.18"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Kitura/BlueCryptor@2.0.2",
+      "name": "github.com/Kitura/BlueCryptor",
+      "version": "2.0.2",
+      "purl": "pkg:swift/github.com/Kitura/BlueCryptor@2.0.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Kitura/BlueCryptor@2.0.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Kitura/BlueECC@1.2.201",
+      "name": "github.com/Kitura/BlueECC",
+      "version": "1.2.201",
+      "purl": "pkg:swift/github.com/Kitura/BlueECC@1.2.201",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Kitura/BlueECC@1.2.201"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Kitura/BlueRSA@1.0.203",
+      "name": "github.com/Kitura/BlueRSA",
+      "version": "1.0.203",
+      "purl": "pkg:swift/github.com/Kitura/BlueRSA@1.0.203",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Kitura/BlueRSA@1.0.203"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Kitura/KituraContracts@2.0.1",
+      "name": "github.com/Kitura/KituraContracts",
+      "version": "2.0.1",
+      "purl": "pkg:swift/github.com/Kitura/KituraContracts@2.0.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Kitura/KituraContracts@2.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Kitura/LoggerAPI@2.0.0",
+      "name": "github.com/Kitura/LoggerAPI",
+      "version": "2.0.0",
+      "purl": "pkg:swift/github.com/Kitura/LoggerAPI@2.0.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Kitura/LoggerAPI@2.0.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/Kitura/Swift-JWT@4.0.2",
+      "name": "github.com/Kitura/Swift-JWT",
+      "version": "4.0.2",
+      "purl": "pkg:swift/github.com/Kitura/Swift-JWT@4.0.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/Kitura/Swift-JWT@4.0.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/airbnb/lottie-ios@3.5.0",
+      "name": "github.com/airbnb/lottie-ios",
+      "version": "3.5.0",
+      "purl": "pkg:swift/github.com/airbnb/lottie-ios@3.5.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/airbnb/lottie-ios@3.5.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/apple/swift-collections@1.1.0",
+      "name": "github.com/apple/swift-collections",
+      "version": "1.1.0",
+      "purl": "pkg:swift/github.com/apple/swift-collections@1.1.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/apple/swift-collections@1.1.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/apple/swift-log@1.6.1",
+      "name": "github.com/apple/swift-log",
+      "version": "1.6.1",
+      "purl": "pkg:swift/github.com/apple/swift-log@1.6.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/apple/swift-log@1.6.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/devicekit/DeviceKit@4.9.0",
+      "name": "github.com/devicekit/DeviceKit",
+      "version": "4.9.0",
+      "purl": "pkg:swift/github.com/devicekit/DeviceKit@4.9.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/devicekit/DeviceKit@4.9.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/element-hq/matrix-rich-text-editor-swift@2.37.12",
+      "name": "github.com/element-hq/matrix-rich-text-editor-swift",
+      "version": "2.37.12",
+      "purl": "pkg:swift/github.com/element-hq/matrix-rich-text-editor-swift@2.37.12",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/element-hq/matrix-rich-text-editor-swift@2.37.12"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/element-hq/swift-ogg@0.0.1",
+      "name": "github.com/element-hq/swift-ogg",
+      "version": "0.0.1",
+      "purl": "pkg:swift/github.com/element-hq/swift-ogg@0.0.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/element-hq/swift-ogg@0.0.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/maplibre/maplibre-gl-native-distribution@5.12.2",
+      "name": "github.com/maplibre/maplibre-gl-native-distribution",
+      "version": "5.12.2",
+      "purl": "pkg:swift/github.com/maplibre/maplibre-gl-native-distribution@5.12.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/maplibre/maplibre-gl-native-distribution@5.12.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/matrix-org/matrix-analytics-events@0.23.1",
+      "name": "github.com/matrix-org/matrix-analytics-events",
+      "version": "0.23.1",
+      "purl": "pkg:swift/github.com/matrix-org/matrix-analytics-events@0.23.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/matrix-org/matrix-analytics-events@0.23.1"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/vector-im/ogg-swift@0.8.3",
+      "name": "github.com/vector-im/ogg-swift",
+      "version": "0.8.3",
+      "purl": "pkg:swift/github.com/vector-im/ogg-swift@0.8.3",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/vector-im/ogg-swift@0.8.3"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:swift/github.com/vector-im/opus-swift@0.8.4",
+      "name": "github.com/vector-im/opus-swift",
+      "version": "0.8.4",
+      "purl": "pkg:swift/github.com/vector-im/opus-swift@0.8.4",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/vector-im/opus-swift@0.8.4"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "swift"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "d80459da-2ed1-480a-803c-1cec099032ba",
+      "name": ".",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:SchemaVersion",
+          "value": "2"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "5ef8eff1-c931-4637-afb5-4c7d633c9541",
+      "dependsOn": [
+        "pkg:cocoapods/DSWaveformImage@6.1.1",
+        "pkg:cocoapods/DTCoreText@1.6.26",
+        "pkg:cocoapods/DTTJailbreakDetection@0.4.0",
+        "pkg:cocoapods/Down@0.11.0",
+        "pkg:cocoapods/FlowCommoniOS@1.12.2",
+        "pkg:cocoapods/GBDeviceInfo@7.1.0",
+        "pkg:cocoapods/Introspect@0.12.0",
+        "pkg:cocoapods/KTCenterFlowLayout@1.3.1",
+        "pkg:cocoapods/KeychainAccess@4.2.2",
+        "pkg:cocoapods/MatomoTracker@7.5.2",
+        "pkg:cocoapods/MatrixSDK@0.27.17",
+        "pkg:cocoapods/ReadMoreTextView@3.0.1",
+        "pkg:cocoapods/Reusable@4.1.2",
+        "pkg:cocoapods/SideMenu@6.5.0",
+        "pkg:cocoapods/SwiftFormat@0.54.5#CLI",
+        "pkg:cocoapods/SwiftGen@6.6.3",
+        "pkg:cocoapods/SwiftLint@0.57.0",
+        "pkg:cocoapods/UICollectionViewLeftAlignedLayout@1.0.2",
+        "pkg:cocoapods/UICollectionViewRightAlignedLayout@0.0.3",
+        "pkg:cocoapods/WeakDictionary@2.0.2",
+        "pkg:cocoapods/ZXingObjC@3.6.9",
+        "pkg:cocoapods/libPhoneNumber-iOS@0.9.15",
+        "pkg:cocoapods/zxcvbn-ios@1.0.4"
+      ]
+    },
+    {
+      "ref": "8e3615aa-15ed-444e-b8b1-2127e1e809ec",
+      "dependsOn": [
+        "pkg:swift/github.com/Cocoanetics/DTCoreText@1.6.26",
+        "pkg:swift/github.com/Cocoanetics/DTFoundation@1.7.18",
+        "pkg:swift/github.com/Kitura/BlueCryptor@2.0.2",
+        "pkg:swift/github.com/Kitura/BlueECC@1.2.201",
+        "pkg:swift/github.com/Kitura/BlueRSA@1.0.203",
+        "pkg:swift/github.com/Kitura/KituraContracts@2.0.1",
+        "pkg:swift/github.com/Kitura/LoggerAPI@2.0.0",
+        "pkg:swift/github.com/Kitura/Swift-JWT@4.0.2",
+        "pkg:swift/github.com/airbnb/lottie-ios@3.5.0",
+        "pkg:swift/github.com/apple/swift-collections@1.1.0",
+        "pkg:swift/github.com/apple/swift-log@1.6.1",
+        "pkg:swift/github.com/devicekit/DeviceKit@4.9.0",
+        "pkg:swift/github.com/element-hq/matrix-rich-text-editor-swift@2.37.12",
+        "pkg:swift/github.com/element-hq/swift-ogg@0.0.1",
+        "pkg:swift/github.com/maplibre/maplibre-gl-native-distribution@5.12.2",
+        "pkg:swift/github.com/matrix-org/matrix-analytics-events@0.23.1",
+        "pkg:swift/github.com/vector-im/ogg-swift@0.8.3",
+        "pkg:swift/github.com/vector-im/opus-swift@0.8.4"
+      ]
+    },
+    {
+      "ref": "d80459da-2ed1-480a-803c-1cec099032ba",
+      "dependsOn": [
+        "5ef8eff1-c931-4637-afb5-4c7d633c9541",
+        "8e3615aa-15ed-444e-b8b1-2127e1e809ec"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/AFNetworking@4.0.1",
+      "dependsOn": [
+        "pkg:cocoapods/AFNetworking@4.0.1#NSURLSession",
+        "pkg:cocoapods/AFNetworking@4.0.1#Reachability",
+        "pkg:cocoapods/AFNetworking@4.0.1#Security",
+        "pkg:cocoapods/AFNetworking@4.0.1#Serialization",
+        "pkg:cocoapods/AFNetworking@4.0.1#UIKit"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/AFNetworking@4.0.1#NSURLSession",
+      "dependsOn": [
+        "pkg:cocoapods/AFNetworking@4.0.1#Reachability",
+        "pkg:cocoapods/AFNetworking@4.0.1#Security",
+        "pkg:cocoapods/AFNetworking@4.0.1#Serialization"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/AFNetworking@4.0.1#Reachability"
+    },
+    {
+      "ref": "pkg:cocoapods/AFNetworking@4.0.1#Security"
+    },
+    {
+      "ref": "pkg:cocoapods/AFNetworking@4.0.1#Serialization"
+    },
+    {
+      "ref": "pkg:cocoapods/AFNetworking@4.0.1#UIKit",
+      "dependsOn": [
+        "pkg:cocoapods/AFNetworking@4.0.1#NSURLSession"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/DSWaveformImage@6.1.1"
+    },
+    {
+      "ref": "pkg:cocoapods/DTCoreText@1.6.26",
+      "dependsOn": [
+        "pkg:cocoapods/DTCoreText@1.6.26#Core",
+        "pkg:cocoapods/DTFoundation@1.7.19#Core",
+        "pkg:cocoapods/DTFoundation@1.7.19#DTAnimatedGIF",
+        "pkg:cocoapods/DTFoundation@1.7.19#DTHTMLParser",
+        "pkg:cocoapods/DTFoundation@1.7.19#UIKit"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/DTCoreText@1.6.26#Core",
+      "dependsOn": [
+        "pkg:cocoapods/DTFoundation@1.7.19#Core",
+        "pkg:cocoapods/DTFoundation@1.7.19#DTAnimatedGIF",
+        "pkg:cocoapods/DTFoundation@1.7.19#DTHTMLParser",
+        "pkg:cocoapods/DTFoundation@1.7.19#UIKit"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/DTFoundation@1.7.19#Core"
+    },
+    {
+      "ref": "pkg:cocoapods/DTFoundation@1.7.19#DTAnimatedGIF"
+    },
+    {
+      "ref": "pkg:cocoapods/DTFoundation@1.7.19#DTHTMLParser",
+      "dependsOn": [
+        "pkg:cocoapods/DTFoundation@1.7.19#Core"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/DTFoundation@1.7.19#UIKit",
+      "dependsOn": [
+        "pkg:cocoapods/DTFoundation@1.7.19#Core"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/DTTJailbreakDetection@0.4.0"
+    },
+    {
+      "ref": "pkg:cocoapods/Down@0.11.0"
+    },
+    {
+      "ref": "pkg:cocoapods/FlowCommoniOS@1.12.2"
+    },
+    {
+      "ref": "pkg:cocoapods/GBDeviceInfo@7.1.0",
+      "dependsOn": [
+        "pkg:cocoapods/GBDeviceInfo@7.1.0#Core"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/GBDeviceInfo@7.1.0#Core"
+    },
+    {
+      "ref": "pkg:cocoapods/GZIP@1.3.2"
+    },
+    {
+      "ref": "pkg:cocoapods/Introspect@0.12.0"
+    },
+    {
+      "ref": "pkg:cocoapods/KTCenterFlowLayout@1.3.1"
+    },
+    {
+      "ref": "pkg:cocoapods/KeychainAccess@4.2.2"
+    },
+    {
+      "ref": "pkg:cocoapods/MatomoTracker@7.5.2",
+      "dependsOn": [
+        "pkg:cocoapods/MatomoTracker@7.5.2#Core"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/MatomoTracker@7.5.2#Core"
+    },
+    {
+      "ref": "pkg:cocoapods/MatrixSDK@0.27.17",
+      "dependsOn": [
+        "pkg:cocoapods/MatrixSDK@0.27.17#Core"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/MatrixSDK@0.27.17#Core",
+      "dependsOn": [
+        "pkg:cocoapods/AFNetworking@4.0.1",
+        "pkg:cocoapods/GZIP@1.3.2",
+        "pkg:cocoapods/MatrixSDKCrypto@0.11.1",
+        "pkg:cocoapods/Realm@10.27.0",
+        "pkg:cocoapods/SwiftyBeaver@1.9.5",
+        "pkg:cocoapods/libbase58@0.1.4"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/MatrixSDKCrypto@0.11.1"
+    },
+    {
+      "ref": "pkg:cocoapods/ReadMoreTextView@3.0.1"
+    },
+    {
+      "ref": "pkg:cocoapods/Realm@10.27.0",
+      "dependsOn": [
+        "pkg:cocoapods/Realm@10.27.0#Headers"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/Realm@10.27.0#Headers"
+    },
+    {
+      "ref": "pkg:cocoapods/Reusable@4.1.2",
+      "dependsOn": [
+        "pkg:cocoapods/Reusable@4.1.2#Storyboard",
+        "pkg:cocoapods/Reusable@4.1.2#View"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/Reusable@4.1.2#Storyboard"
+    },
+    {
+      "ref": "pkg:cocoapods/Reusable@4.1.2#View"
+    },
+    {
+      "ref": "pkg:cocoapods/SideMenu@6.5.0"
+    },
+    {
+      "ref": "pkg:cocoapods/SwiftFormat@0.54.5#CLI"
+    },
+    {
+      "ref": "pkg:cocoapods/SwiftGen@6.6.3"
+    },
+    {
+      "ref": "pkg:cocoapods/SwiftLint@0.57.0"
+    },
+    {
+      "ref": "pkg:cocoapods/SwiftyBeaver@1.9.5"
+    },
+    {
+      "ref": "pkg:cocoapods/UICollectionViewLeftAlignedLayout@1.0.2"
+    },
+    {
+      "ref": "pkg:cocoapods/UICollectionViewRightAlignedLayout@0.0.3"
+    },
+    {
+      "ref": "pkg:cocoapods/WeakDictionary@2.0.2"
+    },
+    {
+      "ref": "pkg:cocoapods/ZXingObjC@3.6.9",
+      "dependsOn": [
+        "pkg:cocoapods/ZXingObjC@3.6.9#All"
+      ]
+    },
+    {
+      "ref": "pkg:cocoapods/ZXingObjC@3.6.9#All"
+    },
+    {
+      "ref": "pkg:cocoapods/libPhoneNumber-iOS@0.9.15"
+    },
+    {
+      "ref": "pkg:cocoapods/libbase58@0.1.4"
+    },
+    {
+      "ref": "pkg:cocoapods/zxcvbn-ios@1.0.4"
+    },
+    {
+      "ref": "pkg:swift/github.com/Cocoanetics/DTCoreText@1.6.26"
+    },
+    {
+      "ref": "pkg:swift/github.com/Cocoanetics/DTFoundation@1.7.18"
+    },
+    {
+      "ref": "pkg:swift/github.com/Kitura/BlueCryptor@2.0.2"
+    },
+    {
+      "ref": "pkg:swift/github.com/Kitura/BlueECC@1.2.201"
+    },
+    {
+      "ref": "pkg:swift/github.com/Kitura/BlueRSA@1.0.203"
+    },
+    {
+      "ref": "pkg:swift/github.com/Kitura/KituraContracts@2.0.1"
+    },
+    {
+      "ref": "pkg:swift/github.com/Kitura/LoggerAPI@2.0.0"
+    },
+    {
+      "ref": "pkg:swift/github.com/Kitura/Swift-JWT@4.0.2"
+    },
+    {
+      "ref": "pkg:swift/github.com/airbnb/lottie-ios@3.5.0"
+    },
+    {
+      "ref": "pkg:swift/github.com/apple/swift-collections@1.1.0"
+    },
+    {
+      "ref": "pkg:swift/github.com/apple/swift-log@1.6.1"
+    },
+    {
+      "ref": "pkg:swift/github.com/devicekit/DeviceKit@4.9.0"
+    },
+    {
+      "ref": "pkg:swift/github.com/element-hq/matrix-rich-text-editor-swift@2.37.12"
+    },
+    {
+      "ref": "pkg:swift/github.com/element-hq/swift-ogg@0.0.1"
+    },
+    {
+      "ref": "pkg:swift/github.com/maplibre/maplibre-gl-native-distribution@5.12.2"
+    },
+    {
+      "ref": "pkg:swift/github.com/matrix-org/matrix-analytics-events@0.23.1"
+    },
+    {
+      "ref": "pkg:swift/github.com/vector-im/ogg-swift@0.8.3"
+    },
+    {
+      "ref": "pkg:swift/github.com/vector-im/opus-swift@0.8.4"
+    }
+  ]
+}
