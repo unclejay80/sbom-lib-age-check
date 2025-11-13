@@ -1,15 +1,15 @@
 # sbom-check
 
-Dieses Repository enthält ein kleines Python-CLI-Tool `sbom-check.py`, das CycloneDX (JSON) SBOMs analysiert, das Veröffentlichungsdatum von Komponenten ermittelt und für Komponenten, die älter als eine konfigurierbare Anzahl von Tagen sind, eine ALARM-Zeile ausgibt.
+This repository contains a small Python CLI tool, `sbom-check.py`, which analyzes CycloneDX (JSON) SBOMs, determines the release date of components, and emits an ALARM line for components whose last release is older than a configurable number of days.
 
-Wichtige Eigenschaften
-- Unterstützte Registries: crates.io (Cargo), npm, PyPI, Maven Central / Google Maven, CocoaPods.
-- Optionaler Update-Check: mit `--check-updates` werden für ALARM-Komponenten verfügbare neuere Versionen bei den jeweiligen Registries geprüft.
-- Parallelisiert: Registry-Abfragen werden mit einem konfigurierbaren Worker-Count parallel ausgeführt (`--max-workers`).
-- Persistenter Cache: Ergebnisse (neueste Versionen und Release-Daten) werden in einer JSON-Cache-Datei zwischengespeichert, um wiederholte Requests zu vermeiden.
+Key features
+- Supported registries: crates.io (Cargo), npm, PyPI, Maven Central / Google Maven, CocoaPods.
+- Optional update check: with `--check-updates` the tool queries the respective registries for newer versions of components that are flagged as ALARM.
+- Parallelized: registry queries run in parallel using a configurable worker count (`--max-workers`).
+- Persistent cache: results (latest versions and release dates) are stored in a JSON cache file to avoid repeated requests.
 
-Voraussetzungen
-- Python 3.8+ (empfohlen 3.10+)
+Requirements
+- Python 3.8+ (3.10+ recommended)
 
 Installation
 ```bash
@@ -18,31 +18,31 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Schnellstart / Beispiele
-- Ein schnelles Run (nur Alter prüfen, Standard-Cache):
+Quick start / Examples
+- A quick run (only age check, default cache):
 
 ```bash
 python3 sbom-check.py --sbom sbom-all-v1_5_web.json --age 30
 ```
 
-- Mit Update-Prüfung, Cache-Datei und 6 parallelen Workern:
+- With update checking, a cache file and 6 parallel workers:
 
 ```bash
 python3 sbom-check.py --sbom sbom-all-v1_5_web.json --age 30 --check-updates --max-workers 6 --cache .sbom-check-cache.json
 ```
 
-CLI-Flags (wichtige)
-- `--sbom PATH`  : Pfad zur CycloneDX JSON SBOM (v1.5)
-- `--age N`      : Altersgrenze in Tagen (Komponenten, deren letzter Release älter sind, werden als ALARM gelistet)
-- `--check-updates`: Wenn gesetzt, prüft das Tool für ALARM-Komponenten, ob neuere Versionen verfügbar sind
-- `--max-workers N`: Anzahl paralleler Worker für Registry-Anfragen (empfohlen 4-8 für große SBOMs)
-- `--cache PATH` : Pfad zur persistierenden Cache-Datei (Standard: `.sbom-check-cache.json`)
+CLI flags (important)
+- `--sbom PATH`  : Path to the CycloneDX JSON SBOM (v1.5)
+- `--age N`      : Age threshold in days (components whose latest release is older will be listed as ALARM)
+- `--check-updates`: If set, the tool checks whether newer versions are available for ALARM components
+- `--max-workers N`: Number of parallel workers for registry queries (4-8 recommended for large SBOMs)
+- `--cache PATH` : Path to the persistent cache file (default: `.sbom-check-cache.json`)
 
-Ausgabeformat
-Das Tool schreibt Zeilen mit folgendem Grundmuster in stdout:
+Output format
+The tool writes lines to stdout using this pattern:
 
-ALARM: <purl>@<version> | VÖ: <release-date> | Alter: <n> Tage (Limit: <age> Tage) | UPDATE_AVAILABLE: latest: <x.y.z> (aktuell: <a.b.c>)
+ALARM: <purl>@<version> | Released: <release-date> | Age: <n> days (Limit: <age> days) | UPDATE_AVAILABLE: latest: <x.y.z> (current: <a.b.c>)
 
-Hinweise
-- Die erste Ausführung auf einer großen SBOM kann viele HTTP-Requests auslösen und einige Minuten dauern. Der persistente Cache reduziert wiederholte Last bei späteren Durchläufen.
-- Manche Registries liefern Pre-Releases oder RCs; das Tool versucht, vernünftige Entscheidungen zu treffen, kann aber je nach Paket-Ökosystem unterschiedliche Ergebnisse liefern.
+Notes
+- The first run on a large SBOM can trigger many HTTP requests and take several minutes. The persistent cache reduces repeated load on subsequent runs.
+- Some registries provide pre-releases or RCs; the tool attempts reasonable choices but results may vary across ecosystems.

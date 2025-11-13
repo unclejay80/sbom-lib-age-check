@@ -62,12 +62,12 @@ DEFAULT_TIMEOUTS = {
 
 
 def log_error(message: str):
-    print(f"FEHLER: {message}", file=sys.stderr)
+    print(f"ERROR: {message}", file=sys.stderr)
 
 
 def parse_purl(purl: str) -> Optional[Dict[str, str]]:
     if not purl or not purl.startswith('pkg:'):
-        log_error(f"Ungültiges oder leeres PURL-Format: {purl}")
+        log_error(f"Invalid or empty PURL format: {purl}")
         return None
     try:
         main_part, version_part = purl[4:].split('@', 1)
@@ -95,7 +95,7 @@ def parse_purl(purl: str) -> Optional[Dict[str, str]]:
         name = '/'.join(parts[1:]) if len(parts) > 1 else ''
         return {'type': pkg_type, 'version': version, 'name': name}
     except Exception as e:
-        log_error(f"PURL-Parsing fehlgeschlagen für {purl}: {e}")
+        log_error(f"PURL parsing failed for {purl}: {e}")
         return None
 
 
@@ -570,18 +570,18 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         with open(sbom_path, 'r', encoding='utf-8') as f:
             sbom = json.load(f)
     except FileNotFoundError:
-        log_error(f"SBOM-Datei nicht gefunden: {sbom_path}")
+        log_error(f"SBOM file not found: {sbom_path}")
         sys.exit(1)
     except json.JSONDecodeError:
-        log_error(f"SBOM-Datei konnte nicht als JSON geparst werden: {sbom_path}")
+        log_error(f"SBOM file could not be parsed as JSON: {sbom_path}")
         sys.exit(1)
     except Exception as e:
-        log_error(f"Fehler beim Lesen der SBOM-Datei {sbom_path}: {e}")
+        log_error(f"Error reading SBOM file {sbom_path}: {e}")
         sys.exit(1)
 
     components = sbom.get('components', [])
     if not components:
-        print('Keine Komponenten in der SBOM gefunden.', file=sys.stderr)
+        print('No components found in the SBOM.', file=sys.stderr)
         return
 
     now = datetime.now(timezone.utc)
@@ -633,7 +633,7 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
                 rd = get_crates_release_date(parsed.get('name'), version)
             elif pkg_type == 'maven':
                 if not version or version.lower() == 'unspecified':
-                    log_error(f"Maven-Version fehlt oder ist 'unspecified' für g={parsed.get('group')} a={parsed.get('artifact')} v={version}")
+                            log_error(f"Maven version missing or 'unspecified' for g={parsed.get('group')} a={parsed.get('artifact')} v={version}")
                 else:
                     rd = get_maven_release_date(parsed.get('group'), parsed.get('artifact'), version)
         except Exception:
@@ -731,15 +731,15 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
     # print alarms with inline update info
     for purl, parsed, rd, age_days, latest in latest_results:
         found_vuln = True
-        alarm = f"ALARM: {purl} | VÖ: {rd.date().isoformat()} | Alter: {age_days} Tage (Limit: {max_age_days} Tage)"
+        alarm = f"ALARM: {purl} | Released: {rd.date().isoformat()} | Age: {age_days} days (Limit: {max_age_days} days)"
         if latest and latest != parsed.get('version'):
             newer = persistent_cache.get(f"latest:{parsed.get('type')}:{parsed.get('name')}", {}).get('newer')
             if newer is True or (newer is None and latest != parsed.get('version')):
-                alarm += f" | UPDATE_AVAILABLE: latest: {latest} (aktuell: {parsed.get('version')})"
+                alarm += f" | UPDATE_AVAILABLE: latest: {latest} (current: {parsed.get('version')})"
         print(alarm)
 
     if not found_vuln:
-        print(f"Analyse abgeschlossen. Keine Komponenten älter als {max_age_days} Tage gefunden.", file=sys.stderr)
+        print(f"Analysis finished. No components older than {max_age_days} days found.", file=sys.stderr)
     else:
         if check_updates and cache_file:
             _save_persistent_cache(cache_file, persistent_cache)
@@ -753,15 +753,15 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Analysiert eine CycloneDX 1.5 SBOM auf veraltete Komponenten.",
+        description="Analyze a CycloneDX 1.5 SBOM for outdated components.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument("--sbom", required=True, help="Der Dateipfad zur CycloneDX 1.5 JSON-Datei.")
-    parser.add_argument("--age", required=True, type=int, help="Das maximal zulässige Alter einer Komponente in Tagen (z. B. 90).")
-    parser.add_argument("--check-updates", action="store_true", help="Wenn gesetzt, prüft das Skript zusätzlich, ob für ALARM-Komponenten neuere Versionen in den Registries vorliegen.")
-    parser.add_argument("--cache-file", default=".sbom-check-cache.json", help="Datei, in der Lookup-Ergebnisse (z.B. gefundene neueste Versionen) zwischengespeichert werden.")
-    parser.add_argument("--max-workers", type=int, default=6, help="Maximale Anzahl paralleler Worker für Registry-Anfragen.")
+    parser.add_argument("--sbom", required=True, help="Path to the CycloneDX 1.5 JSON SBOM file.")
+    parser.add_argument("--age", required=True, type=int, help="Maximum allowed age of a component in days (e.g. 90).")
+    parser.add_argument("--check-updates", action="store_true", help="If set, the script also checks whether newer versions exist for ALARM components in the registries.")
+    parser.add_argument("--cache-file", default=".sbom-check-cache.json", help="File to persist lookup results (e.g. discovered latest versions).")
+    parser.add_argument("--max-workers", type=int, default=6, help="Maximum number of parallel workers for registry queries.")
 
     args = parser.parse_args()
     if args.age <= 0:
