@@ -25,6 +25,16 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import xml.etree.ElementTree as ET
+import re
+
+# TOML parsing: prefer stdlib tomllib (3.11+), fallback to toml package if available
+try:
+    import tomllib  # type: ignore
+except Exception:
+    try:
+        import toml as tomllib  # type: ignore
+    except Exception:
+        tomllib = None
 
 try:
     from packaging.version import Version as PackagingVersion
@@ -97,6 +107,145 @@ def parse_purl(purl: str) -> Optional[Dict[str, str]]:
     except Exception as e:
         log_error(f"PURL parsing failed for {purl}: {e}")
         return None
+
+
+def load_manifest_direct_deps(manifest_path: str) -> Tuple[Optional[str], set]:
+    """Detect manifest type and return (manifest_type, set(direct_dependency_names)).
+
+    Supported manifest types: npm (package.json), cargo (Cargo.toml), pyproject (pyproject.toml),
+    requirements (requirements.txt), podfile_lock (Podfile.lock).
+    """
+    path = manifest_path
+    if not path or not os.path.exists(path):
+        return None, set()
+    # If a directory is supplied, search for known manifest files inside it
+    candidates = []
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path):
+            for fname in files:
+                lf = fname.lower()
+                if lf == 'package.json' or lf == 'cargo.toml' or lf == 'pyproject.toml' or lf == 'requirements.txt' or lf == 'podfile.lock' or lf == 'package.resolved' or lf == 'packageresolved' or lf.endswith('build.gradle') or lf.endswith('build.gradle.kts'):
+                    candidates.append(os.path.join(root, fname))
+        # if nothing found, return
+        if not candidates:
+            return None, set()
+    else:
+        candidates = [path]
+    name_set = set()
+    lower = path.lower()
+    try:
+        for p in candidates:
+            lf = os.path.basename(p).lower()
+            if lf == 'package.json':
+                with open(p, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for k in ('dependencies', 'devDependencies'):
+                    for n in (data.get(k) or {}).keys():
+                        name_set.add(str(n))
+                manifest_type = 'npm'
+
+            elif lf == 'cargo.toml':
+                if tomllib is None:
+                    log_error('TOML parser not available to parse Cargo.toml')
+                else:
+                    with open(p, 'rb') as f:
+                        data = tomllib.load(f)
+                    deps = data.get('dependencies', {}) or {}
+                    dev = data.get('dev-dependencies', {}) or {}
+                    for n in list(deps.keys()) + list(dev.keys()):
+                        name_set.add(str(n))
+                    manifest_type = 'cargo'
+
+            elif lf == 'pyproject.toml':
+                if tomllib is None:
+                    log_error('TOML parser not available to parse pyproject.toml')
+                else:
+                    with open(p, 'rb') as f:
+                        data = tomllib.load(f)
+                    tool = data.get('tool', {}) or {}
+                    poetry = tool.get('poetry', {}) or {}
+                    deps = poetry.get('dependencies', {}) or {}
+                    dev = poetry.get('dev-dependencies', {}) or {}
+                    for n in list(deps.keys()) + list(dev.keys()):
+                        if str(n).lower() in ('python',):
+                            continue
+                        name_set.add(str(n))
+                    manifest_type = 'pyproject'
+
+            elif lf == 'requirements.txt':
+                with open(p, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        m = re.match(r'^([A-Za-z0-9@_\-./]+)', line)
+                        if docs:
+                            candidates = []
+                            for d in docs:
+                                for k in ('latestVersion', 'latestversion', 'v', 'version'):
+                                    if k in d and d[k]:
+                                        candidates.append(str(d[k]))
+                            if candidates:
+                                uniq = sorted(set(candidates))
+                                try:
+                                    if semver:
+                                        uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                                    return uniq[-1], 'central-search'
+                                except Exception:
+                                    return uniq[-1], 'central-search'
+                                break
+                            clean = re.sub(r'^[- ]+', '', s)
+                            clean = clean.split('(')[0].strip()
+                            if clean:
+                                name_set.add(clean)
+                manifest_type = 'podfile_lock'
+
+            elif lf == 'package.resolved' or lf == 'packageresolved' or lf == 'packageresolved.json':
+                # SwiftPM Package.resolved (JSON) — look for object.pins or pins
+                try:
+                    with open(p, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    pins = None
+                    if isinstance(data, dict):
+                        if 'object' in data and isinstance(data['object'], dict):
+                            pins = data['object'].get('pins')
+                        if pins is None:
+                            pins = data.get('pins')
+                    if pins:
+                        for pin in pins:
+                            name = pin.get('package') or pin.get('packageName') or pin.get('name')
+                            if name:
+                                name_set.add(name)
+                        manifest_type = 'packageresolved'
+                except Exception:
+                    pass
+
+            elif lf.endswith('build.gradle') or lf.endswith('build.gradle.kts'):
+                # parse common dependency declarations
+                try:
+                    with open(p, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            # match implementation 'group:artifact:version' or implementation("group:artifact:version")
+                            m = re.search(r"(?:implementation|api|compile(?:Only)?|runtimeOnly|testImplementation|testCompile)\s*\(?\s*['\"]([^'\"]+)['\"]", line)
+                            if m:
+                                coord = m.group(1)
+                                parts = coord.split(':')
+                                if len(parts) >= 2:
+                                    ga = f"{parts[0]}:{parts[1]}"
+                                    name_set.add(ga)
+                                    name_set.add(parts[1])
+                                else:
+                                    name_set.add(coord)
+                    manifest_type = 'gradle'
+                except Exception:
+                    pass
+
+        return manifest_type, name_set
+
+    except Exception as e:
+        log_error(f"Error parsing manifest {manifest_path}: {e}")
+        return None, set()
 
 
 def get_pypi_release_date(name: str, version: str) -> Optional[datetime]:
@@ -237,7 +386,7 @@ def get_maven_release_date(group: str, artifact: str, version: str) -> Optional[
     return None
 
 
-def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
+def get_latest_maven_version(group: str, artifact: str) -> Tuple[Optional[str], Optional[str]]:
     # repo1 metadata
     try:
         group_path = group.replace('.', '/')
@@ -248,45 +397,74 @@ def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
                 root = ET.fromstring(r.text)
                 v = root.findtext('versioning/release') or root.findtext('versioning/latest')
                 if v:
-                    return v
+                    return v, 'repo1'
                 vers = root.findall('versioning/versions/version')
                 if vers:
-                    return vers[-1].text
+                    return vers[-1].text, 'repo1'
             except Exception:
                 pass
     except Exception:
         pass
 
-    # search.maven.org (broader)
-    try:
-        search = 'https://search.maven.org/solrsearch/select'
-        q = f'g:"{group}" AND a:"{artifact}"'
-        r = SESSION.get(search, params={"q": q, "rows": 50, "wt": "json"}, timeout=DEFAULT_TIMEOUTS['maven_search'])
-        r.raise_for_status()
-        data = r.json()
-        docs = data.get('response', {}).get('docs', [])
-        if not docs:
-            r = SESSION.get(search, params={"q": f'a:"{artifact}"', "rows": 50, "wt": "json"}, timeout=DEFAULT_TIMEOUTS['maven_search'])
-            r.raise_for_status()
-            data = r.json()
-            docs = data.get('response', {}).get('docs', [])
-        candidates = []
-        for d in docs:
-            for k in ('latestVersion', 'v', 'version'):
-                if k in d and d[k]:
-                    candidates.append(str(d[k]))
-        if candidates:
-            uniq = sorted(set(candidates))
-            try:
-                if semver:
-                    uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
-                return uniq[-1]
-            except Exception:
-                return uniq[-1]
-    except Exception:
-        pass
+    # For Android/Google artifacts prefer Google Maven (dl.google.com / maven.google.com) before
+    # consulting Maven Central broadly, because many play-services/androidx artifacts are hosted there.
+    priority_groups = ('com.google', 'androidx')
+    use_google_first = any(group.startswith(p) for p in priority_groups)
 
-    # google index
+    if use_google_first:
+        # google index
+        try:
+            base = f'https://dl.google.com/dl/android/maven2/{group.replace('.', '/')}/{artifact}/'
+            r = SESSION.get(base, timeout=DEFAULT_TIMEOUTS['maven_search'])
+            if r.status_code == 200 and r.text:
+                import re
+                vers = set(re.findall(r'href="([0-9A-Za-z\.\-]+)/"', r.text))
+                vers = [v.rstrip('/') for v in vers if v]
+                if vers:
+                    uniq = sorted(set(vers))
+                    try:
+                        if semver:
+                            uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                        return uniq[-1], 'google-dl'
+                    except Exception:
+                        return uniq[-1], 'google-dl'
+        except Exception:
+            pass
+
+        # try maven.google.com metadata or directory listing
+        try:
+            group_path = group.replace('.', '/')
+            meta = f'https://maven.google.com/{group_path}/{artifact}/maven-metadata.xml'
+            rmeta = SESSION.get(meta, timeout=DEFAULT_TIMEOUTS['maven_get'])
+            if rmeta.status_code == 200 and rmeta.text:
+                try:
+                    root = ET.fromstring(rmeta.text)
+                    v = root.findtext('versioning/release') or root.findtext('versioning/latest')
+                    if v:
+                        return v, 'google-meta'
+                    vers = root.findall('versioning/versions/version')
+                    if vers:
+                        return vers[-1].text, 'google-meta'
+                except Exception:
+                    pass
+            base2 = f'https://maven.google.com/{group_path}/{artifact}/'
+            r2 = SESSION.get(base2, timeout=DEFAULT_TIMEOUTS['maven_search'])
+            if r2.status_code == 200 and r2.text:
+                import re
+                vers = set(re.findall(r'href="([0-9A-Za-z\.\-]+)/"', r2.text))
+                vers = [v.rstrip('/') for v in vers if v]
+                if vers:
+                    uniq = sorted(set(vers))
+                    try:
+                        if semver:
+                            uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                        return uniq[-1], 'google-dir'
+                    except Exception:
+                        return uniq[-1], 'google-dir'
+        except Exception:
+            pass
+
+    # google index (non-priority path)
     try:
         base = f'https://dl.google.com/dl/android/maven2/{group.replace('.', '/')}/{artifact}/'
         r = SESSION.get(base, timeout=DEFAULT_TIMEOUTS['maven_search'])
@@ -299,9 +477,9 @@ def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
                 try:
                     if semver:
                         uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
-                    return uniq[-1]
+                    return uniq[-1], 'google-dl'
                 except Exception:
-                    return uniq[-1]
+                    return uniq[-1], 'google-dl'
     except Exception:
         pass
 
@@ -315,10 +493,10 @@ def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
                 root = ET.fromstring(rmeta.text)
                 v = root.findtext('versioning/release') or root.findtext('versioning/latest')
                 if v:
-                    return v
+                    return v, 'google-meta'
                 vers = root.findall('versioning/versions/version')
                 if vers:
-                    return vers[-1].text
+                    return vers[-1].text, 'google-meta'
             except Exception:
                 pass
         # directory listing on maven.google.com (HTML) — parse anchors
@@ -333,13 +511,39 @@ def get_latest_maven_version(group: str, artifact: str) -> Optional[str]:
                 try:
                     if semver:
                         uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
-                    return uniq[-1]
+                    return uniq[-1], 'google-dir'
                 except Exception:
-                    return uniq[-1]
+                    return uniq[-1], 'google-dir'
     except Exception:
         pass
 
-    return None
+    # As a last resort, broaden the search on Maven Central by artifact name only; this may return
+    # artifacts from other groups (e.g. microG) that share the same artifactId. We prefer Google Maven
+    # and repo1 results above, but if nothing else is found, this provides a (possibly noisy) fallback.
+    try:
+        search = 'https://search.maven.org/solrsearch/select'
+        r = SESSION.get(search, params={"q": f'a:"{artifact}"', "rows": 50, "wt": "json"}, timeout=DEFAULT_TIMEOUTS['maven_search'])
+        r.raise_for_status()
+        data = r.json()
+        docs = data.get('response', {}).get('docs', [])
+        if docs:
+            candidates = []
+            for d in docs:
+                for k in ('latestVersion', 'latestversion', 'v', 'version'):
+                    if k in d and d[k]:
+                        candidates.append(str(d[k]))
+            if candidates:
+                uniq = sorted(set(candidates))
+                try:
+                    if semver:
+                        uniq = sorted(uniq, key=lambda v: semver.VersionInfo.parse(v))
+                    return uniq[-1], 'central-fallback'
+                except Exception:
+                    return uniq[-1], 'central-fallback'
+    except Exception:
+        pass
+
+    return None, None
 
     
 
@@ -565,7 +769,23 @@ def compare_versions(current: str, latest: str, pkg_type: str) -> Optional[bool]
         return None
 
 
-def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None, max_workers: int = 6):
+def _is_semver_like(v: Optional[str]) -> bool:
+    """Return True if v looks like a numeric-dot or semver-like version.
+
+    Accept strings like '1.2.3', '1.2.3-alpha', '33.5.0-jre', '5.18.1'.
+    Reject clearly non-numeric identifiers like 'momo5.1f.medialive.20210427105401' or long hashes.
+    This is a heuristic only; we still fall back to release-date comparison when unsure.
+    """
+    if not v or not isinstance(v, str):
+        return False
+    # common semver-ish: digits and dots, optional pre-release/build suffixes with hyphen
+    if re.match(r'^[0-9]+(\.[0-9]+)*(?:[-+][A-Za-z0-9\.\-]+)?$', v):
+        return True
+    return False
+
+
+def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None, max_workers: int = 6, manifest_path: Optional[str] = None, manifest_overlay: bool = False):
+    # NOTE: manifest overlay support may be provided via CLI; handled in main()
     try:
         with open(sbom_path, 'r', encoding='utf-8') as f:
             sbom = json.load(f)
@@ -584,6 +804,15 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         print('No components found in the SBOM.', file=sys.stderr)
         return
 
+    # If manifest overlay is requested, load direct dependency names from manifest
+    manifest_names = set()
+    manifest_type = None
+    if manifest_overlay and manifest_path:
+        manifest_type, manifest_names = load_manifest_direct_deps(manifest_path)
+        if not manifest_names:
+            log_error(f"Manifest overlay enabled but no direct dependencies extracted from {manifest_path}; continuing without manifest filter.")
+            manifest_names = set()
+
     now = datetime.now(timezone.utc)
     found_vuln = False
     persistent_cache = _load_persistent_cache(cache_file) if check_updates else {}
@@ -594,10 +823,55 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
 
     # build list of components to fetch release dates for
     work_items: list[Tuple[str, Dict[str, str], str]] = []  # (purl, parsed, pkg_type)
+    # prepare a helper map for matching manifest names -> components
+    def component_candidate_names(comp: Dict[str, Any]) -> set:
+        names = set()
+        nm = comp.get('name')
+        if nm:
+            names.add(str(nm))
+        grp = comp.get('group')
+        if grp and nm:
+            # scoped npm style
+            names.add(f"{grp}/{nm}")
+            names.add(f"{grp}{nm}")
+        # try special properties (trivy PkgID) which often contains 'name@version'
+        for prop in comp.get('properties', []) or []:
+            if prop.get('name') == 'aquasecurity:trivy:PkgID' and prop.get('value'):
+                v = prop.get('value')
+                if isinstance(v, str) and '@' in v:
+                    names.add(v.split('@', 1)[0])
+        # try parsing purl
+        purl = comp.get('purl')
+        if purl:
+            parsed = parse_purl(purl)
+            if parsed:
+                pname = parsed.get('name')
+                if pname:
+                    # unquote any percent-encodings
+                    try:
+                        pname_u = requests.utils.unquote(pname)
+                        names.add(pname_u)
+                    except Exception:
+                        names.add(pname)
+                # for maven include group:artifact
+                if parsed.get('type') == 'maven':
+                    g = parsed.get('group') or ''
+                    a = parsed.get('artifact') or ''
+                    names.add(f"{g}:{a}")
+        return names
+
     for comp in components:
         purl = comp.get('purl')
         if not purl:
             continue
+        # if manifest overlay is active and manifest_names found, only include matching components
+        if manifest_names:
+            cand = component_candidate_names(comp)
+            # normalise comparison: lower-case
+            cand_l = set(x.lower() for x in cand if x)
+            manifest_l = set(x.lower() for x in manifest_names if x)
+            if not cand_l.intersection(manifest_l):
+                continue
         parsed = parse_purl(purl)
         if not parsed:
             continue
@@ -691,9 +965,22 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
             elif pkg_type == 'maven':
                 lookup_name = f"{parsed.get('group') or ''}:{parsed.get('artifact') or ''}"
                 cache_key = f"latest:{pkg_type}:{lookup_name}"
-                latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
-                if not latest:
-                    latest = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
+                cached_entry = persistent_cache.get(cache_key, {})
+                latest = transient_latest_cache.get(cache_key) or cached_entry.get('latest')
+                src = cached_entry.get('source')
+                # For priority groups (com.google, androidx) avoid trusting an existing central-fallback cache
+                priority_groups = ('com.google', 'androidx')
+                use_google_first = any((parsed.get('group') or '').startswith(p) for p in priority_groups)
+                need_refresh = False
+                if use_google_first:
+                    # If cached source is absent or indicates the central artifact-only fallback, refresh
+                    if not src or src == 'central-fallback':
+                        need_refresh = True
+                    # also refresh if cached latest is non-semver-like
+                    if latest and not _is_semver_like(latest) and src == 'central-fallback':
+                        need_refresh = True
+                if not latest or need_refresh:
+                    latest, src = get_latest_maven_version(parsed.get('group'), parsed.get('artifact'))
             elif pkg_type == 'cocoapods':
                 cache_key = f"latest:{pkg_type}:{parsed.get('name')}"
                 latest = transient_latest_cache.get(cache_key) or persistent_cache.get(cache_key, {}).get('latest')
@@ -707,6 +994,41 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         except Exception:
             latest = None
 
+        # Heuristic validation for 'latest' versions: for Maven and other registries, avoid
+        # reporting clearly noisy/non-numeric latest strings unless we can validate by release date.
+        try:
+            validated = False
+            if latest:
+                # fast path: semver-like strings are usually safe
+                if _is_semver_like(latest):
+                    validated = True
+                else:
+                    # try to fetch release date for the reported "latest" and require it to be newer
+                    # than the current component's release date.
+                    latest_rd = None
+                    try:
+                        if pkg_type == 'maven':
+                            latest_rd = get_maven_release_date(parsed.get('group'), parsed.get('artifact'), latest)
+                        elif pkg_type == 'pypi':
+                            latest_rd = get_pypi_release_date(parsed.get('name'), latest)
+                        elif pkg_type == 'npm':
+                            latest_rd = get_npm_release_date(parsed.get('name'), latest)
+                        elif pkg_type == 'cocoapods':
+                            latest_rd = get_cocoapods_release_date(parsed.get('name'), latest)
+                        elif pkg_type == 'cargo':
+                            latest_rd = get_crates_release_date(parsed.get('name'), latest)
+                    except Exception:
+                        latest_rd = None
+                    if latest_rd and rd and latest_rd > rd:
+                        validated = True
+            # if not validated, drop 'latest' to avoid noisy UPDATE_AVAILABLE messages
+            if not validated:
+                latest = None
+
+        except Exception:
+            # in case of unexpected errors, be conservative and keep latest as-is
+            pass
+
         if latest and cache_key:
             transient_latest_cache[cache_key] = latest
             cached = persistent_cache.get(cache_key)
@@ -715,7 +1037,14 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
                     newer = compare_versions(parsed.get('version'), latest, parsed.get('type'))
                 except Exception:
                     newer = None
-                persistent_cache[cache_key] = {'latest': latest, 'newer': newer}
+                # record source when available for easier auditing
+                entry = {'latest': latest, 'newer': newer}
+                try:
+                    if src:
+                        entry['source'] = src
+                except Exception:
+                    pass
+                persistent_cache[cache_key] = entry
 
         return (purl, parsed, rd, age_days, latest)
 
@@ -733,9 +1062,18 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         found_vuln = True
         alarm = f"ALARM: {purl} | Released: {rd.date().isoformat()} | Age: {age_days} days (Limit: {max_age_days} days)"
         if latest and latest != parsed.get('version'):
-            newer = persistent_cache.get(f"latest:{parsed.get('type')}:{parsed.get('name')}", {}).get('newer')
+            # determine the cache key used when latest was stored (maven uses group:artifact)
+            if parsed.get('type') == 'maven':
+                cache_key_print = f"latest:{parsed.get('type')}:{parsed.get('group') or ''}:{parsed.get('artifact') or ''}"
+            else:
+                cache_key_print = f"latest:{parsed.get('type')}:{parsed.get('name') or ''}"
+            newer = persistent_cache.get(cache_key_print, {}).get('newer')
+            src = persistent_cache.get(cache_key_print, {}).get('source')
+            # If persistent cache reports newer==True we show update. If unknown but latest differs, show update too.
             if newer is True or (newer is None and latest != parsed.get('version')):
                 alarm += f" | UPDATE_AVAILABLE: latest: {latest} (current: {parsed.get('version')})"
+                if src:
+                    alarm += f" [source={src}]"
         print(alarm)
 
     if not found_vuln:
@@ -762,13 +1100,23 @@ def main():
     parser.add_argument("--check-updates", action="store_true", help="If set, the script also checks whether newer versions exist for ALARM components in the registries.")
     parser.add_argument("--cache-file", default=".sbom-check-cache.json", help="File to persist lookup results (e.g. discovered latest versions).")
     parser.add_argument("--max-workers", type=int, default=6, help="Maximum number of parallel workers for registry queries.")
+    parser.add_argument("--manifest", help="Path to project manifest file (package.json, Cargo.toml, pyproject.toml, requirements.txt, Podfile.lock).")
+    parser.add_argument("--manifest-overlay", action="store_true", help="When set, only direct dependencies from the manifest are checked (manifest overlay).")
 
     args = parser.parse_args()
     if args.age <= 0:
-        log_error("--age muss ein positiver Integer sein.")
+        log_error("--age must be a positive integer.")
         sys.exit(1)
 
-    analyze_sbom(args.sbom, args.age, check_updates=args.check_updates, cache_file=(args.cache_file if args.check_updates else None), max_workers=args.max_workers)
+    analyze_sbom(
+        args.sbom,
+        args.age,
+        check_updates=args.check_updates,
+        cache_file=(args.cache_file if args.check_updates else None),
+        max_workers=args.max_workers,
+        manifest_path=(args.manifest if args.manifest_overlay else None),
+        manifest_overlay=bool(args.manifest_overlay),
+    )
 
     # ensure cache persisted
     if args.check_updates and args.cache_file:
