@@ -145,16 +145,59 @@ def load_manifest_direct_deps(manifest_path: str) -> Tuple[Optional[str], set]:
                 manifest_type = 'npm'
 
             elif lf == 'cargo.toml':
+                # Prefer TOML parser, but fall back to a lightweight heuristic parser if unavailable.
                 if tomllib is None:
-                    log_error('TOML parser not available to parse Cargo.toml')
+                    # simple fallback: read file and extract keys under [dependencies] and [dev-dependencies]
+                    try:
+                        with open(p, 'r', encoding='utf-8') as f:
+                            text = f.read()
+                        for section in ('dependencies', 'dev-dependencies'):
+                            # capture the section block until next [section] or EOF
+                            m = re.search(r"\n\s*\[\s*" + re.escape(section) + r"\s*\][\s\S]*?(?=\n\s*\[|\Z)", text, flags=re.IGNORECASE)
+                            if m:
+                                block = m.group(0)
+                                for line in block.splitlines()[1:]:
+                                    line = line.strip()
+                                    if not line or line.startswith('#'):
+                                        continue
+                                    # match 'name =', 'name=', or 'name = { ... }'
+                                    m2 = re.match(r"^([A-Za-z0-9_\-\.]+)\s*=", line)
+                                    if m2:
+                                        name_set.add(m2.group(1))
+                    except Exception:
+                        log_error('TOML parser not available and fallback failed to parse Cargo.toml')
                 else:
-                    with open(p, 'rb') as f:
-                        data = tomllib.load(f)
-                    deps = data.get('dependencies', {}) or {}
-                    dev = data.get('dev-dependencies', {}) or {}
-                    for n in list(deps.keys()) + list(dev.keys()):
-                        name_set.add(str(n))
-                    manifest_type = 'cargo'
+                    try:
+                        with open(p, 'rb') as f:
+                            data = tomllib.load(f)
+                        # handle top-level dependencies as well as [workspace.dependencies]
+                        deps = data.get('dependencies', {}) or {}
+                        dev = data.get('dev-dependencies', {}) or {}
+                        if isinstance(data.get('workspace'), dict):
+                            w = data.get('workspace') or {}
+                            deps = {**deps, **(w.get('dependencies') or {})}
+                            dev = {**dev, **(w.get('dev-dependencies') or {})}
+                        for n in list(deps.keys()) + list(dev.keys()):
+                            name_set.add(str(n))
+                    except Exception:
+                        # if parsing fails, fall back to the light-weight reader above
+                        try:
+                            with open(p, 'r', encoding='utf-8') as f:
+                                text = f.read()
+                            for section in ('dependencies', 'dev-dependencies', 'workspace.dependencies', 'workspace.dev-dependencies'):
+                                m = re.search(r"\n\s*\[\s*" + re.escape(section) + r"\s*\][\s\S]*?(?=\n\s*\[|\Z)", text, flags=re.IGNORECASE)
+                                if m:
+                                    block = m.group(0)
+                                    for line in block.splitlines()[1:]:
+                                        line = line.strip()
+                                        if not line or line.startswith('#'):
+                                            continue
+                                        m2 = re.match(r"^([A-Za-z0-9_\-\.]+)\s*=", line)
+                                        if m2:
+                                            name_set.add(m2.group(1))
+                        except Exception:
+                            log_error('Failed to parse Cargo.toml')
+                manifest_type = 'cargo'
 
             elif lf == 'pyproject.toml':
                 if tomllib is None:
