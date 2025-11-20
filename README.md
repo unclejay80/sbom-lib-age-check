@@ -7,6 +7,11 @@ Key features
 - Optional update check: with `--check-updates` the tool queries the respective registries for newer versions of components that are flagged as ALARM.
 - Parallelized: registry queries run in parallel using a configurable worker count (`--max-workers`).
 - Persistent cache: results (latest versions and release dates) are stored in a JSON cache file to avoid repeated requests.
+- Robust Maven lookup: Google Maven (dl.google.com / maven.google.com) is now prioritized for `com.google*` and `androidx*` groups to avoid noisy artifact-only matches from other groups.
+- Heuristic validation of "latest" versions: the script suppresses clearly noisy version strings (non-numeric) unless the candidate's release date can be validated as newer than the current release.
+- Source auditing: the persistent cache records the source used to find a `latest` (e.g. `repo1`, `google-meta`, `central-fallback`) and ALARM lines show `[source=...]` when available.
+- Manifest overlay & manifest parsers: use `--manifest <path>` + `--manifest-overlay` to restrict checks to direct dependencies from manifests. Supported manifests include `package.json`, `Cargo.toml` (workspace-aware), `pyproject.toml`, `requirements.txt`, `Podfile.lock`, and Gradle `build.gradle` heuristics.
+- crates.io and CocoaPods support added; parallelized checks and persistent cache were extended to these ecosystems.
 
 Requirements
 - Python 3.8+ (3.10+ recommended)
@@ -28,7 +33,7 @@ python3 sbom-check.py --sbom sbom-all-v1_5_web.json --age 30
 - With update checking, a cache file and 6 parallel workers:
 
 ```bash
-python3 sbom-check.py --sbom sbom-all-v1_5_web.json --age 30 --check-updates --max-workers 6 --cache .sbom-check-cache.json
+python3 sbom-check.py --sbom sbom-all-v1_5_web.json --age 30 --check-updates --max-workers 6 --cache-file .sbom-check-cache.json
 ```
 
 CLI flags (important)
@@ -36,7 +41,20 @@ CLI flags (important)
 - `--age N`      : Age threshold in days (components whose latest release is older will be listed as ALARM)
 - `--check-updates`: If set, the tool checks whether newer versions are available for ALARM components
 - `--max-workers N`: Number of parallel workers for registry queries (4-8 recommended for large SBOMs)
-- `--cache PATH` : Path to the persistent cache file (default: `.sbom-check-cache.json`)
+ - `--cache-file PATH` : Path to the persistent cache file (default: `.sbom-check-cache.json`)
+
+Examples (Android project)
+
+```bash
+# check Android SBOM and only consider direct manifest deps from an Android project root
+python3 sbom-check.py --sbom sbom-all-v1_5_android.json --age 300 --manifest /path/to/android/project --manifest-overlay --check-updates --max-workers 10 --cache-file .sbom-check-cache.json
+```
+
+Notes on behavior
+
+- The manifest overlay attempts to extract direct dependencies from common manifest files. Gradle parsing is heuristic; for authoritative direct dependencies prefer generating a CycloneDX SBOM from Gradle or using the Gradle CycloneDX plugin.
+- The cache stores keys like `latest:maven:group:artifact` and includes a `source` field to help you audit which registry produced the `latest` value.
+- You can control the strictness of update detection by inspecting the cache and re-running with an empty cache if you want a fresh lookup.
 
 Output format
 The tool writes lines to stdout using this pattern:
