@@ -1,0 +1,13 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "components": [
+    {
+      "type": "library",
+      "name": "lib-example",
+      "group": "com.example",
+      "version": "1.0.0",
+      "purl": "pkg:maven/com.example/lib-example@1.0.0"
+    }
+  ]
+}
