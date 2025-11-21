@@ -42,12 +42,41 @@ CLI flags (important)
 - `--check-updates`: If set, the tool checks whether newer versions are available for ALARM components
 - `--max-workers N`: Number of parallel workers for registry queries (4-8 recommended for large SBOMs)
  - `--cache-file PATH` : Path to the persistent cache file (default: `.sbom-check-cache.json`)
+ - `--ignore-file PATH` : Path to a YAML ignore file. See examples below.
+ - `--show-ignored` : When set, the tool will print a summary of findings that matched the ignore file.
 
 Examples (Android project)
 
 ```bash
 # check Android SBOM and only consider direct manifest deps from an Android project root
 python3 sbom-check.py --sbom sbom-all-v1_5_android.json --age 300 --manifest /path/to/android/project --manifest-overlay --check-updates --max-workers 10 --cache-file .sbom-check-cache.json
+```
+
+Ignore file examples
+
+Create a YAML file (for example `.sbom-ignore.yaml`) to suppress certain findings. The ignore file supports either a simple list of PURLs or structured entries with optional `reason` and `until` (expiry) fields.
+
+Simple PURL list:
+
+```yaml
+- pkg:maven/com.google.android.gms/play-services-location@17.0.0
+- pkg:cargo/serde@1.0.130
+```
+
+Structured entries (with reason and expiry):
+
+```yaml
+- purl: pkg:maven/com.example/some-lib@1.2.3
+	reason: 'In-house fork - ignore until upstream fixes CVE-1234'
+	until: '2026-01-31'
+- purl_regex: '^pkg:maven/com\\.google\\.android\\.gms/.*'
+	reason: 'Ignore group-wide play-services variants temporarily'
+```
+
+To run while showing which items were ignored:
+
+```bash
+python3 sbom-check.py --sbom sbom-all-v1_5_android.json --age 30 --check-updates --ignore-file .sbom-ignore.yaml --show-ignored
 ```
 
 Notes on behavior

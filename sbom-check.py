@@ -26,6 +26,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import xml.etree.ElementTree as ET
 import re
+import yaml
+from dateutil import parser as dateparser
 
 # TOML parsing: prefer stdlib tomllib (3.11+), fallback to toml package if available
 try:
@@ -827,7 +829,116 @@ def _is_semver_like(v: Optional[str]) -> bool:
     return False
 
 
-def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None, max_workers: int = 6, manifest_path: Optional[str] = None, manifest_overlay: bool = False):
+def _load_ignore_file(path: Optional[str]):
+    """Load ignore rules from a YAML file.
+
+    Supported formats:
+      - A list of strings (each an exact PURL to ignore)
+      - A list of mappings with keys: purl, purl_regex, type, name, group, artifact, reason, until
+
+    Returns a list of normalized ignore entries.
+    """
+    if not path:
+        return []
+    try:
+        if not os.path.exists(path):
+            return []
+        with open(path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        if not data:
+            return []
+        entries = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, str):
+                    entries.append({'purl': item})
+                elif isinstance(item, dict):
+                    e = dict(item)
+                    # normalize until into datetime if present
+                    if 'until' in e and e['until']:
+                        try:
+                            e['_until_dt'] = dateparser.parse(str(e['until']))
+                        except Exception:
+                            e['_until_dt'] = None
+                    else:
+                        e['_until_dt'] = None
+                    entries.append(e)
+        elif isinstance(data, dict):
+            # support top-level mapping with key 'ignore'
+            arr = data.get('ignore') or data.get('ignores') or []
+            for item in arr:
+                if isinstance(item, str):
+                    entries.append({'purl': item})
+                elif isinstance(item, dict):
+                    e = dict(item)
+                    if 'until' in e and e['until']:
+                        try:
+                            e['_until_dt'] = dateparser.parse(str(e['until']))
+                        except Exception:
+                            e['_until_dt'] = None
+                    else:
+                        e['_until_dt'] = None
+                    entries.append(e)
+        return entries
+    except Exception:
+        return []
+
+
+def _is_ignored(purl: str, parsed: Dict[str, str], ignore_entries: list) -> Optional[Dict[str, Any]]:
+    """Return matching ignore entry dict if purl/parsed match a non-expired ignore rule, else None."""
+    if not ignore_entries:
+        return None
+    now = datetime.now(timezone.utc)
+    for e in ignore_entries:
+        # check expiry
+        until = e.get('_until_dt')
+        if until and isinstance(until, datetime) and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        if until and isinstance(until, datetime) and until < now:
+            # expired
+            continue
+        # exact purl
+        if e.get('purl') and isinstance(e.get('purl'), str):
+            if e.get('purl').strip() == purl:
+                return e
+        # purl regex
+        if e.get('purl_regex') and isinstance(e.get('purl_regex'), str):
+            try:
+                if re.search(e.get('purl_regex'), purl):
+                    return e
+            except Exception:
+                pass
+        # type & name matching
+        etype = e.get('type')
+        if etype and etype == parsed.get('type'):
+            # maven specific group:artifact match
+            if parsed.get('type') == 'maven':
+                eg = e.get('group')
+                ea = e.get('artifact')
+                if eg and ea and eg == parsed.get('group') and ea == parsed.get('artifact'):
+                    return e
+                # allow group:artifact string
+                if e.get('name') and isinstance(e.get('name'), str):
+                    if e.get('name') == f"{parsed.get('group')}:{parsed.get('artifact')}":
+                        return e
+            else:
+                # generic name match
+                en = e.get('name') or e.get('package')
+                if en and en == parsed.get('name'):
+                    return e
+        # generic name or group:artifact string match
+        if e.get('name') and isinstance(e.get('name'), str):
+            nn = e.get('name')
+            if parsed.get('type') == 'maven' and ':' in nn:
+                if nn == f"{parsed.get('group')}:{parsed.get('artifact')}":
+                    return e
+            else:
+                if nn == parsed.get('name'):
+                    return e
+    return None
+
+
+def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False, cache_file: Optional[str] = None, max_workers: int = 6, manifest_path: Optional[str] = None, manifest_overlay: bool = False, ignore_file: Optional[str] = None, show_ignored: bool = False):
     # NOTE: manifest overlay support may be provided via CLI; handled in main()
     try:
         with open(sbom_path, 'r', encoding='utf-8') as f:
@@ -965,9 +1076,7 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
             try:
                 persistent_cache[cache_key] = {'date': rd.isoformat() if rd else None}
             except Exception:
-                pass
-        return purl, rd, parsed
-
+                    pass
     # fetch release dates in parallel
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -977,15 +1086,28 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
                 results.append(fut.result())
             except Exception:
                 pass
-
-    # collect ALARM candidates
+    # collect ALARM candidates and separate ignored findings
     alarms = []  # (purl, parsed, release_date, age_days)
+    ignored_results = []  # (purl, parsed, rd, reason, until)
     for purl, rd, parsed in results:
         if not rd:
             continue
         age_days = (now - rd).days
         if age_days > max_age_days:
-            alarms.append((purl, parsed, rd, age_days))
+                ignored = False
+                reason = None
+                until = None
+                for comp in components:
+                    if comp.get('purl') == purl and comp.get('_ignored'):
+                        ie = comp.get('_ignored')
+                        ignored = True
+                        reason = ie.get('reason')
+                        until = ie.get('until') or (ie.get('_until_dt').isoformat() if ie.get('_until_dt') else None)
+                        break
+                if ignored:
+                    ignored_results.append((purl, parsed, rd, reason, until))
+                else:
+                    alarms.append((purl, parsed, rd, age_days))
 
     # fetch latest versions for alarm items in parallel
     def fetch_latest_for_alarm(alarm_item):
@@ -1131,6 +1253,18 @@ def analyze_sbom(sbom_path: str, max_age_days: int, check_updates: bool = False,
         except Exception:
             pass
 
+    # optionally print ignored findings summary
+    try:
+        if show_ignored and ignored_results:
+            print('\nIGNORED_FINDINGS: (these matched your ignore file and were skipped)')
+            for purl, parsed, rd, reason, until in ignored_results:
+                line = f"IGNORED: {purl} | Released: {rd.date().isoformat()} | Reason: {reason or ''}"
+                if until:
+                    line += f" | Until: {until}"
+                print(line)
+    except Exception:
+        pass
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1145,6 +1279,8 @@ def main():
     parser.add_argument("--max-workers", type=int, default=6, help="Maximum number of parallel workers for registry queries.")
     parser.add_argument("--manifest", help="Path to project manifest file (package.json, Cargo.toml, pyproject.toml, requirements.txt, Podfile.lock).")
     parser.add_argument("--manifest-overlay", action="store_true", help="When set, only direct dependencies from the manifest are checked (manifest overlay).")
+    parser.add_argument("--ignore-file", help="Path to a YAML ignore file (see README) to skip certain findings.")
+    parser.add_argument("--show-ignored", action="store_true", help="When set, print a summary of findings that matched the ignore file.")
 
     args = parser.parse_args()
     if args.age <= 0:
@@ -1159,6 +1295,8 @@ def main():
         max_workers=args.max_workers,
         manifest_path=(args.manifest if args.manifest_overlay else None),
         manifest_overlay=bool(args.manifest_overlay),
+        ignore_file=(args.ignore_file if args.ignore_file else None),
+        show_ignored=bool(args.show_ignored),
     )
 
     # ensure cache persisted
